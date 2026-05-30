@@ -1,12 +1,15 @@
 """
 AI Client Module for Secu-Agent
 Implements ArliAI API integration based on API exploration discoveries.
+Extended with Agent class for lead capture and automated lead management.
 """
 
 import requests
 import json
-from typing import Dict, Any, List, Optional
+import re
+from typing import Dict, Any, List, Optional, Tuple
 import logging
+from datetime import datetime
 
 # Load configuration
 with open('airli_config.json', 'r') as f:
