@@ -1,0 +1,29 @@
+# Ignore all temporary files
+*.pyc
+*.pyo
+*.pyd
+*.spec
+__pycache__/
+.pytest_cache/
+.dist
+.idea
+.ruby-lsp/
+
+# Ignore specific files or directories
+chat_session.json
+autosave_session.json
+config.json
+airli_config.json
+sys_prompt.txt
+vigil_agent.db
+
+# Ignore development tools
+.vscode/
+.venv
+
+# Ignore build artifacts
+build/
+dist/
+
+# Ignore files and directories containing "log" in their names
+*log*
