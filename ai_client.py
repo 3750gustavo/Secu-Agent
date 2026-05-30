@@ -247,3 +247,507 @@ The message should:
     except Exception as e:
         logger.error(f"Failed to generate engagement message: {str(e)}")
         return f"Hi {lead_name}, I noticed your interest in cybersecurity solutions. I'd love to learn more about {company}'s security needs and how Vigil.AI can help."
+
+
+class Agent:
+    """
+    Agent class for automated lead management and engagement.
+    Uses AIClient for AI-powered decision-making and communication.
+    """
+    
+    # Tool call patterns for parsing AI responses
+    TOOL_PATTERNS = {
+        'SEND_EMAIL': r'SEND_EMAIL\{recipient:\s*([^,]+),\s*subject:\s*([^,]+),\s*body:\s*([^}]+)\}',
+        'SCHEDULE_REMINDER': r'SCHEDULE_REMINDER\{when:\s*([^,]+),\s*message:\s*([^}]+)\}',
+        'UPDATE_STATUS': r'UPDATE_STATUS\{new_status:\s*([^}]+)\}',
+        'REQUEST_INFO': r'REQUEST_INFO\{field:\s*([^,]+),\s*reason:\s*([^}]+)\}'
+    }
+    
+    # Lead lifecycle state machine
+    STATUS_TRANSITIONS = {
+        'new': ['contacted', 'unconfirmed'],
+        'unconfirmed': ['contacted', 'lost'],
+        'contacted': ['engaged', 'lost'],
+        'engaged': ['meeting_scheduled', 'contacted'],
+        'meeting_scheduled': ['attended', 'contacted'],
+        'attended': ['converted', 'contacted'],
+        'lost': ['new']  # Can restart the cycle
+    }
+    
+    def __init__(self, ai_client: Optional[AIClient] = None):
+        """
+        Initialize Agent with AI client.
+        
+        Args:
+            ai_client: AIClient instance. If None, creates default instance.
+        """
+        self.ai_client = ai_client or get_ai_client()
+        self.logger = logging.getLogger(__name__)
+    
+    def parse_tool_calls(self, ai_response: str) -> List[Dict[str, Any]]:
+        """
+        Parse AI response to extract tool calls using regex patterns.
+        
+        Args:
+            ai_response: AI-generated response text
+            
+        Returns:
+            List of detected tool calls with their parameters
+        """
+        tool_calls = []
+        
+        for tool_name, pattern in self.TOOL_PATTERNS.items():
+            matches = re.finditer(pattern, ai_response, re.IGNORECASE)
+            for match in matches:
+                tool_call = {
+                    'tool': tool_name,
+                    'parameters': match.groups(),
+                    'raw_match': match.group(0)
+                }
+                tool_calls.append(tool_call)
+                self.logger.info(f"Detected tool call: {tool_name} with parameters: {match.groups()}")
+        
+        return tool_calls
+    
+    def generate_welcome_message(self, lead: Dict[str, Any]) -> str:
+        """
+        Generate AI-powered personalized welcome message for new lead.
+        
+        Args:
+            lead: Dictionary containing lead information
+            
+        Returns:
+            Personalized welcome message
+        """
+        system_prompt = f"""You are a professional AI assistant for Vigil.AI, a cybersecurity company.
+Generate a warm, personalized welcome message for a new lead.
+
+Lead Information:
+- Name: {lead.get('name', 'Unknown')}
+- Company: {lead.get('company', 'Unknown')}
+- Job Title: {lead.get('job_title', 'Unknown')}
+- Source: {lead.get('source', 'Unknown')}
+
+The message should:
+1. Be warm and professional
+2. Acknowledge their interest in cybersecurity
+3. Briefly mention Vigil.AI's expertise
+4. Encourage engagement
+5. Be concise (3-4 sentences)
+6. Include a call to action
+
+Do NOT include any tool calls in this message."""
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": "Generate a personalized welcome message."}
+        ]
+        
+        try:
+            response = self.ai_client.chat_completion(messages)
+            return response["choices"][0]["message"]["content"]
+        except Exception as e:
+            self.logger.error(f"Failed to generate welcome message: {str(e)}")
+            return f"Welcome {lead.get('name', 'there')}! Thank you for your interest in Vigil.AI's cybersecurity solutions. We're excited to help protect {lead.get('company', 'your organization')} from emerging threats. Let's start a conversation about your security needs."
+    
+    def determine_next_action(self, lead: Dict[str, Any], context: Optional[List[Dict[str, str]]] = None) -> str:
+        """
+        Use AI to determine the next action for a lead based on status and context.
+        
+        Args:
+            lead: Lead information dictionary
+            context: Conversation history context
+            
+        Returns:
+            AI-generated recommendation for next action (may include tool calls)
+        """
+        system_prompt = f"""You are an intelligent sales agent for Vigil.AI cybersecurity company.
+Analyze the lead's current situation and recommend the next action.
+
+Lead Information:
+- Name: {lead.get('name', 'Unknown')}
+- Company: {lead.get('company', 'Unknown')}
+- Job Title: {lead.get('job_title', 'Unknown')}
+- Current Status: {lead.get('status', 'new')}
+- Source: {lead.get('source', 'Unknown')}
+
+Available Actions:
+1. SEND_EMAIL - Send an email to the lead
+2. SCHEDULE_REMINDER - Schedule a follow-up reminder
+3. UPDATE_STATUS - Update the lead's status
+4. REQUEST_INFO - Request additional information from the lead
+
+Respond with a clear recommendation and include the appropriate tool call in the format:
+TOOL_NAME{parameter1: value1, parameter2: value2}
+
+Example: SEND_EMAIL{recipient: john@company.com, subject: Following up, body: Hi John, I wanted to follow up...}"""
+
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        if context:
+            messages.extend(context)
+        
+        messages.append({"role": "user", "content": "What should be the next action for this lead?"})
+        
+        try:
+            response = self.ai_client.chat_completion(messages)
+            return response["choices"][0]["message"]["content"]
+        except Exception as e:
+            self.logger.error(f"Failed to determine next action: {str(e)}")
+            return "SEND_EMAIL{recipient: " + lead.get('email', '') + ", subject: Following up, body: Hi " + lead.get('name', 'there') + ", I wanted to check in and see if you have any questions about our cybersecurity services.}"
+    
+    def generate_contextual_message(self, lead: Dict[str, Any], context: List[Dict[str, str]],
+                                   intent: str = "follow_up") -> str:
+        """
+        Generate context-aware message based on conversation history.
+        
+        Args:
+            lead: Lead information dictionary
+            context: Conversation history
+            intent: Purpose of the message (follow_up, reminder, info_request, etc.)
+            
+        Returns:
+            Context-aware personalized message
+        """
+        system_prompt = f"""You are a professional AI assistant for Vigil.AI cybersecurity company.
+Generate a contextual message based on the conversation history.
+
+Lead Information:
+- Name: {lead.get('name', 'Unknown')}
+- Company: {lead.get('company', 'Unknown')}
+- Job Title: {lead.get('job_title', 'Unknown')}
+- Current Status: {lead.get('status', 'new')}
+
+Message Intent: {intent}
+
+The message should:
+1. Reference previous conversation context naturally
+2. Be relevant to the lead's current status
+3. Maintain professional tone
+4. Include appropriate call to action
+5. Be concise but informative
+
+Do NOT include tool calls in this message."""
+
+        messages = [{"role": "system", "content": system_prompt}]
+        
+        # Add conversation history
+        if context:
+            messages.extend(context)
+        
+        messages.append({"role": "user", "content": f"Generate a {intent} message based on the conversation history."})
+        
+        try:
+            response = self.ai_client.chat_completion(messages)
+            return response["choices"][0]["message"]["content"]
+        except Exception as e:
+            self.logger.error(f"Failed to generate contextual message: {str(e)}")
+            return f"Hi {lead.get('name', 'there')}, following up on our previous conversation. I'd love to continue discussing how Vigil.AI can help {lead.get('company', 'your organization')} with cybersecurity."
+    
+    def update_context(self, lead_id: int, message: str, response: str,
+                      db_session) -> bool:
+        """
+        Update conversation context in database.
+        
+        Args:
+            lead_id: ID of the lead
+            message: Message sent to lead
+            response: Response received from lead
+            db_session: Database session
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            from database import MessageOperations
+            
+            # Store outbound message
+            MessageOperations.create_message(
+                db=db_session,
+                lead_id=lead_id,
+                message_text=message,
+                channel="email",
+                direction="outbound"
+            )
+            
+            # Store inbound response
+            if response:
+                MessageOperations.create_message(
+                    db=db_session,
+                    lead_id=lead_id,
+                    message_text=response,
+                    channel="email",
+                    direction="inbound"
+                )
+            
+            self.logger.info(f"Updated context for lead {lead_id}")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to update context for lead {lead_id}: {str(e)}")
+            return False
+    
+    def get_conversation_context(self, lead_id: int, db_session,
+                                limit: int = 10) -> List[Dict[str, str]]:
+        """
+        Retrieve conversation history for a lead.
+        
+        Args:
+            lead_id: ID of the lead
+            db_session: Database session
+            limit: Maximum number of messages to retrieve
+            
+        Returns:
+            List of message dictionaries with role and content
+        """
+        try:
+            from database import MessageOperations
+            
+            messages = MessageOperations.get_messages_by_lead(db_session, lead_id)
+            
+            # Convert to chat completion format
+            context = []
+            for msg in messages[-limit:]:  # Get most recent messages
+                role = "user" if msg.direction == "inbound" else "assistant"
+                context.append({
+                    "role": role,
+                    "content": msg.message_text
+                })
+            
+            return context
+        except Exception as e:
+            self.logger.error(f"Failed to get conversation context for lead {lead_id}: {str(e)}")
+            return []
+    
+    def execute_tool_call(self, tool_call: Dict[str, Any], lead: Dict[str, Any],
+                         db_session) -> Dict[str, Any]:
+        """
+        Execute a parsed tool call.
+        
+        Args:
+            tool_call: Tool call dictionary with tool name and parameters
+            lead: Lead information
+            db_session: Database session
+            
+        Returns:
+            Execution result dictionary
+        """
+        tool_name = tool_call['tool']
+        parameters = tool_call['parameters']
+        
+        try:
+            if tool_name == 'SEND_EMAIL':
+                # In a real implementation, this would send an actual email
+                recipient, subject, body = parameters
+                self.logger.info(f"SEND_EMAIL executed: To={recipient}, Subject={subject}")
+                
+                # Store as message in database
+                from database import MessageOperations
+                MessageOperations.create_message(
+                    db=db_session,
+                    lead_id=lead.get('id'),
+                    message_text=body,
+                    channel="email",
+                    direction="outbound"
+                )
+                
+                return {"success": True, "action": "email_sent", "recipient": recipient}
+            
+            elif tool_name == 'SCHEDULE_REMINDER':
+                when, message = parameters
+                self.logger.info(f"SCHEDULE_REMINDER executed: When={when}, Message={message}")
+                return {"success": True, "action": "reminder_scheduled", "when": when}
+            
+            elif tool_name == 'UPDATE_STATUS':
+                new_status = parameters[0].strip()
+                from database import LeadOperations
+                
+                updated_lead = LeadOperations.update_lead_status(
+                    db=db_session,
+                    lead_id=lead.get('id'),
+                    new_status=new_status
+                )
+                
+                if updated_lead:
+                    self.logger.info(f"UPDATE_STATUS executed: {lead.get('status')} -> {new_status}")
+                    return {"success": True, "action": "status_updated", "new_status": new_status}
+                else:
+                    return {"success": False, "error": "Failed to update status"}
+            
+            elif tool_name == 'REQUEST_INFO':
+                field, reason = parameters
+                self.logger.info(f"REQUEST_INFO executed: Field={field}, Reason={reason}")
+                
+                # Generate and send info request message
+                info_message = f"I'd like to learn more about {field} to better assist you. {reason}"
+                from database import MessageOperations
+                MessageOperations.create_message(
+                    db=db_session,
+                    lead_id=lead.get('id'),
+                    message_text=info_message,
+                    channel="email",
+                    direction="outbound"
+                )
+                
+                return {"success": True, "action": "info_requested", "field": field}
+            
+            else:
+                return {"success": False, "error": f"Unknown tool: {tool_name}"}
+        
+        except Exception as e:
+            self.logger.error(f"Failed to execute tool call {tool_name}: {str(e)}")
+            return {"success": False, "error": str(e)}
+    
+    def process_lead(self, lead_id: int, db_session) -> Dict[str, Any]:
+        """
+        Main processing logic for a lead - determines and executes next actions.
+        
+        Args:
+            lead_id: ID of the lead to process
+            db_session: Database session
+            
+        Returns:
+            Processing result with actions taken
+        """
+        try:
+            from database import LeadOperations
+            
+            # Get lead information
+            lead = LeadOperations.get_lead(db_session, lead_id)
+            if not lead:
+                return {"success": False, "error": "Lead not found"}
+            
+            lead_dict = {
+                'id': lead.id,
+                'name': lead.name,
+                'email': lead.email,
+                'company': lead.company,
+                'job_title': lead.job_title,
+                'status': lead.status,
+                'source': lead.source
+            }
+            
+            # Get conversation context
+            context = self.get_conversation_context(lead_id, db_session)
+            
+            # Determine next action based on lead status
+            if lead.status == 'new':
+                # New lead - send welcome message
+                welcome_message = self.generate_welcome_message(lead_dict)
+                self.update_context(lead_id, welcome_message, "", db_session)
+                
+                # Update status to contacted
+                LeadOperations.update_lead_status(db_session, lead_id, "contacted")
+                
+                return {
+                    "success": True,
+                    "action": "welcome_sent",
+                    "message": welcome_message,
+                    "new_status": "contacted"
+                }
+            
+            elif lead.status == 'contacted':
+                # Use AI to determine next action
+                ai_response = self.determine_next_action(lead_dict, context)
+                
+                # Parse and execute tool calls
+                tool_calls = self.parse_tool_calls(ai_response)
+                results = []
+                
+                for tool_call in tool_calls:
+                    result = self.execute_tool_call(tool_call, lead_dict, db_session)
+                    results.append(result)
+                
+                return {
+                    "success": True,
+                    "action": "ai_processed",
+                    "ai_response": ai_response,
+                    "tool_calls_executed": len(tool_calls),
+                    "results": results
+                }
+            
+            elif lead.status == 'engaged':
+                # Generate contextual follow-up
+                follow_up = self.generate_contextual_message(lead_dict, context, "follow_up")
+                self.update_context(lead_id, follow_up, "", db_session)
+                
+                return {
+                    "success": True,
+                    "action": "follow_up_sent",
+                    "message": follow_up
+                }
+            
+            elif lead.status == 'meeting_scheduled':
+                # Send meeting reminder
+                reminder = self.generate_contextual_message(lead_dict, context, "meeting_reminder")
+                self.update_context(lead_id, reminder, "", db_session)
+                
+                return {
+                    "success": True,
+                    "action": "reminder_sent",
+                    "message": reminder
+                }
+            
+            elif lead.status == 'attended':
+                # Follow up after meeting
+                follow_up = self.generate_contextual_message(lead_dict, context, "post_meeting")
+                self.update_context(lead_id, follow_up, "", db_session)
+                
+                # Update status to engaged for further nurturing
+                LeadOperations.update_lead_status(db_session, lead_id, "engaged")
+                
+                return {
+                    "success": True,
+                    "action": "post_meeting_followup",
+                    "message": follow_up,
+                    "new_status": "engaged"
+                }
+            
+            else:
+                return {
+                    "success": True,
+                    "action": "no_action",
+                    "message": f"No action required for lead in status: {lead.status}"
+                }
+        
+        except Exception as e:
+            self.logger.error(f"Failed to process lead {lead_id}: {str(e)}")
+            return {"success": False, "error": str(e)}
+    
+    def enrich_lead_data(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Auto-enrich lead data with mock information.
+        
+        Args:
+            lead_data: Original lead data
+            
+        Returns:
+            Enriched lead data
+        """
+        enriched = lead_data.copy()
+        
+        # Mock enrichment based on company name
+        company = lead_data.get('company', '')
+        if company:
+            # Mock company size based on name length (simple heuristic)
+            if len(company) < 10:
+                enriched['company_size'] = 'Small (1-50 employees)'
+            elif len(company) < 20:
+                enriched['company_size'] = 'Medium (51-200 employees)'
+            else:
+                enriched['company_size'] = 'Large (200+ employees)'
+            
+            # Mock industry based on keywords
+            company_lower = company.lower()
+            if any(keyword in company_lower for keyword in ['tech', 'software', 'digital', 'cloud']):
+                enriched['industry'] = 'Technology'
+            elif any(keyword in company_lower for keyword in ['bank', 'finance', 'financial']):
+                enriched['industry'] = 'Finance'
+            elif any(keyword in company_lower for keyword in ['health', 'medical', 'pharma']):
+                enriched['industry'] = 'Healthcare'
+            else:
+                enriched['industry'] = 'General'
+        
+        # Add enrichment timestamp
+        enriched['enriched_at'] = datetime.utcnow().isoformat()
+        
+        return enriched
