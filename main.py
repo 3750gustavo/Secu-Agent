@@ -17,6 +17,9 @@ from database import (
     LeadOperations, MessageOperations
 )
 
+# Import AI client and Agent
+from ai_client import Agent
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Secu-Agent AI Lead Management System",
@@ -96,6 +99,102 @@ async def create_lead(
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/leads/capture", response_model=dict)
+async def capture_lead(
+    name: str,
+    email: str,
+    company: str,
+    job_title: str,
+    source: str = "event",
+    db: Session = Depends(get_db)
+):
+    """
+    Capture a new lead with validation, enrichment, and automated agent processing.
+    
+    This endpoint:
+    - Validates required fields (name, email, company, job_title)
+    - Auto-enriches lead data with mock information
+    - Creates lead in database
+    - Triggers agent processing for welcome message and initial engagement
+    - Returns lead ID and initial status
+    """
+    try:
+        # Validate required fields
+        if not name or not email or not company or not job_title:
+            raise HTTPException(
+                status_code=400,
+                detail="Missing required fields: name, email, company, job_title are required"
+            )
+        
+        # Basic email validation
+        if "@" not in email or "." not in email:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid email format"
+            )
+        
+        # Check if lead already exists
+        existing_lead = LeadOperations.get_lead_by_email(db, email)
+        if existing_lead:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Lead with email {email} already exists"
+            )
+        
+        # Create lead data dictionary
+        lead_data = {
+            "name": name,
+            "email": email,
+            "company": company,
+            "job_title": job_title,
+            "source": source
+        }
+        
+        # Auto-enrich lead data
+        agent = Agent()
+        enriched_data = agent.enrich_lead_data(lead_data)
+        
+        # Create lead in database
+        lead = LeadOperations.create_lead(
+            db=db,
+            name=enriched_data["name"],
+            email=enriched_data["email"],
+            company=enriched_data["company"],
+            job_title=enriched_data["job_title"],
+            source=enriched_data["source"],
+            status="new"
+        )
+        
+        # Refresh to get actual ID value
+        db.refresh(lead)
+        
+        # Trigger agent processing
+        processing_result = agent.process_lead(lead.id, db)
+        
+        # Return comprehensive response
+        return {
+            "id": lead.id,
+            "name": lead.name,
+            "email": lead.email,
+            "company": lead.company,
+            "job_title": lead.job_title,
+            "source": lead.source,
+            "status": lead.status,
+            "enrichment": {
+                "company_size": enriched_data.get("company_size"),
+                "industry": enriched_data.get("industry"),
+                "enriched_at": enriched_data.get("enriched_at")
+            },
+            "agent_processing": processing_result,
+            "created_at": lead.created_at.isoformat()
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Lead capture failed: {str(e)}")
 
 
 @app.get("/leads/{lead_id}", response_model=dict)

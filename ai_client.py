@@ -378,9 +378,9 @@ Available Actions:
 4. REQUEST_INFO - Request additional information from the lead
 
 Respond with a clear recommendation and include the appropriate tool call in the format:
-TOOL_NAME{parameter1: value1, parameter2: value2}
+TOOL_NAME{{parameter1: value1, parameter2: value2}}
 
-Example: SEND_EMAIL{recipient: john@company.com, subject: Following up, body: Hi John, I wanted to follow up...}"""
+Example: SEND_EMAIL{{recipient: john@company.com, subject: Following up, body: Hi John, I wanted to follow up...}}"""
 
         messages = [{"role": "system", "content": system_prompt}]
         
