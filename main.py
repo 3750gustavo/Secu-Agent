@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
+from pydantic import BaseModel, EmailStr
 import uvicorn
 import webbrowser
 import os
@@ -27,6 +28,31 @@ from ai_client import Agent
 
 # Import communication services
 from communication import get_communication_service
+
+# Pydantic models for request validation
+class LeadCaptureRequest(BaseModel):
+    name: str
+    email: str
+    company: str
+    job_title: str
+    source: str = "event"
+
+class LeadCreateRequest(BaseModel):
+    name: str
+    email: str
+    company: Optional[str] = None
+    job_title: Optional[str] = None
+    source: str = "event"
+    status: str = "new"
+
+class MessageCreateRequest(BaseModel):
+    lead_id: int
+    message_text: str
+    channel: str = "email"
+    direction: str = "outbound"
+
+class StatusUpdateRequest(BaseModel):
+    new_status: str
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -93,24 +119,19 @@ async def api_info():
 # Lead endpoints
 @app.post("/leads", response_model=dict)
 async def create_lead(
-    name: str,
-    email: str,
-    company: Optional[str] = None,
-    job_title: Optional[str] = None,
-    source: str = "event",
-    status: str = "new",
+    request: LeadCreateRequest,
     db: Session = Depends(get_db)
 ):
     """Create a new lead."""
     try:
         lead = LeadOperations.create_lead(
             db=db,
-            name=name,
-            email=email,
-            company=company,
-            job_title=job_title,
-            source=source,
-            status=status
+            name=request.name,
+            email=request.email,
+            company=request.company,
+            job_title=request.job_title,
+            source=request.source,
+            status=request.status
         )
         return {
             "id": lead.id,
@@ -128,11 +149,7 @@ async def create_lead(
 
 @app.post("/api/leads/capture", response_model=dict)
 async def capture_lead(
-    name: str,
-    email: str,
-    company: str,
-    job_title: str,
-    source: str = "event",
+    request: LeadCaptureRequest,
     db: Session = Depends(get_db)
 ):
     """
@@ -147,34 +164,34 @@ async def capture_lead(
     """
     try:
         # Validate required fields
-        if not name or not email or not company or not job_title:
+        if not request.name or not request.email or not request.company or not request.job_title:
             raise HTTPException(
                 status_code=400,
                 detail="Missing required fields: name, email, company, job_title are required"
             )
         
         # Basic email validation
-        if "@" not in email or "." not in email:
+        if "@" not in request.email or "." not in request.email:
             raise HTTPException(
                 status_code=400,
                 detail="Invalid email format"
             )
         
         # Check if lead already exists
-        existing_lead = LeadOperations.get_lead_by_email(db, email)
+        existing_lead = LeadOperations.get_lead_by_email(db, request.email)
         if existing_lead:
             raise HTTPException(
                 status_code=409,
-                detail=f"Lead with email {email} already exists"
+                detail=f"Lead with email {request.email} already exists"
             )
         
         # Create lead data dictionary
         lead_data = {
-            "name": name,
-            "email": email,
-            "company": company,
-            "job_title": job_title,
-            "source": source
+            "name": request.name,
+            "email": request.email,
+            "company": request.company,
+            "job_title": request.job_title,
+            "source": request.source
         }
         
         # Auto-enrich lead data
@@ -273,11 +290,11 @@ async def get_leads(
 @app.put("/leads/{lead_id}/status", response_model=dict)
 async def update_lead_status(
     lead_id: int,
-    new_status: str,
+    request: StatusUpdateRequest,
     db: Session = Depends(get_db)
 ):
     """Update lead status."""
-    lead = LeadOperations.update_lead_status(db, lead_id, new_status)
+    lead = LeadOperations.update_lead_status(db, lead_id, request.new_status)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
     
@@ -303,25 +320,22 @@ async def delete_lead(lead_id: int, db: Session = Depends(get_db)):
 # Message endpoints
 @app.post("/messages", response_model=dict)
 async def create_message(
-    lead_id: int,
-    message_text: str,
-    channel: str = "email",
-    direction: str = "outbound",
+    request: MessageCreateRequest,
     db: Session = Depends(get_db)
 ):
     """Create a new message for a lead."""
     try:
         # Verify lead exists
-        lead = LeadOperations.get_lead(db, lead_id)
+        lead = LeadOperations.get_lead(db, request.lead_id)
         if not lead:
             raise HTTPException(status_code=404, detail="Lead not found")
         
         message = MessageOperations.create_message(
             db=db,
-            lead_id=lead_id,
-            message_text=message_text,
-            channel=channel,
-            direction=direction
+            lead_id=request.lead_id,
+            message_text=request.message_text,
+            channel=request.channel,
+            direction=request.direction
         )
         
         return {
