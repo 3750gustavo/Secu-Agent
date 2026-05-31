@@ -20,6 +20,9 @@ from database import (
 # Import AI client and Agent
 from ai_client import Agent
 
+# Import communication services
+from communication import get_communication_service
+
 # Initialize FastAPI app
 app = FastAPI(
     title="Secu-Agent AI Lead Management System",
@@ -361,6 +364,91 @@ async def delete_message(message_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Message not found")
     
     return {"message": "Message deleted successfully", "id": message_id}
+
+
+# Communication endpoints
+@app.get("/api/communications/{lead_id}", response_model=List[dict])
+async def get_communications_for_lead(lead_id: int, db: Session = Depends(get_db)):
+    """
+    Get all communications for a specific lead.
+    Includes both email and SMS messages.
+    """
+    # Verify lead exists
+    lead = LeadOperations.get_lead(db, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    # Get communications via communication service
+    comm_service = get_communication_service()
+    communications = comm_service.get_communications_for_lead(lead_id, db)
+    
+    return communications
+
+
+@app.post("/api/communications/test", response_model=dict)
+async def test_communication_service(
+    lead_id: int,
+    channel: str = "email",
+    db: Session = Depends(get_db)
+):
+    """
+    Test communication service by sending a test message.
+    
+    Args:
+        lead_id: Lead ID to send test message to
+        channel: Communication channel (email or sms)
+        db: Database session
+    """
+    # Verify lead exists
+    lead = LeadOperations.get_lead(db, lead_id)
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    
+    comm_service = get_communication_service()
+    
+    if channel == "email":
+        result = comm_service.send_email(
+            to=lead.email,
+            subject="Test Email from Secu-Agent",
+            body="This is a test email from the Secu-Agent communication system.",
+            lead_id=lead_id,
+            db_session=db
+        )
+    elif channel == "sms":
+        # Use a mock phone number for testing
+        result = comm_service.send_sms(
+            phone="+1234567890",
+            message="This is a test SMS from the Secu-Agent communication system.",
+            lead_id=lead_id,
+            db_session=db
+        )
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid channel: {channel}. Must be 'email' or 'sms'"
+        )
+    
+    return {
+        "lead_id": lead_id,
+        "channel": channel,
+        "test_result": result,
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@app.get("/api/communications/stats", response_model=dict)
+async def get_communication_stats(db: Session = Depends(get_db)):
+    """
+    Get overall communication statistics.
+    Includes both email and SMS metrics.
+    """
+    comm_service = get_communication_service()
+    stats = comm_service.get_overall_stats(db)
+    
+    return {
+        "statistics": stats,
+        "timestamp": datetime.utcnow().isoformat()
+    }
 
 
 # Error handlers
