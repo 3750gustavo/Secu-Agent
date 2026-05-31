@@ -339,8 +339,8 @@ class SMSService:
         Returns:
             True if valid, False otherwise
         """
-        # Remove common separators
-        cleaned = phone.replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
+        # Remove common separators and plus sign
+        cleaned = phone.replace("-", "").replace(" ", "").replace("(", "").replace(")", "").replace("+", "")
         
         # Check if it's mostly digits and reasonable length
         return cleaned.isdigit() and 10 <= len(cleaned) <= 15
