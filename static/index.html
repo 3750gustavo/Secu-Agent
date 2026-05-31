@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vigil Summit — Segurança para a Era da IA</title>
+    
+    <!-- TailwindCSS via CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Alpine.js via CDN -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    
+    <!-- Custom Tailwind Configuration -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        cyber: {
+                            dark: '#0a0e27',
+                            blue: '#1a1f3a',
+                            accent: '#00d4ff',
+                            purple: '#7c3aed',
+                            green: '#10b981',
+                            red: '#ef4444'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        .gradient-bg {
+            background: linear-gradient(135deg, #0a0e27 0%, #1a1f3a 50%, #0a0e27 100%);
+        }
+        
+        .cyber-border {
+            border: 1px solid rgba(0, 212, 255, 0.3);
+            box-shadow: 0 0 20px rgba(0, 212, 255, 0.1);
+        }
+        
+        .glow-text {
+            text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+        }
+        
+        .pulse-glow {
+            animation: pulse-glow 2s infinite;
+        }
+        
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 20px rgba(0, 212, 255, 0.3); }
+            50% { box-shadow: 0 0 40px rgba(0, 212, 255, 0.6); }
+        }
+        
+        .slide-up {
+            animation: slideUp 0.5s ease-out;
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .input-focus:focus {
+            outline: none;
+            border-color: #00d4ff;
+            box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.2);
+        }
+        
+        .btn-cyber {
+            background: linear-gradient(135deg, #00d4ff 0%, #7c3aed 100%);
+            transition: all 0.3s ease;
+        }
+        
+        .btn-cyber:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 212, 255, 0.4);
+        }
+        
+        .btn-cyber:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .card-hover {
+            transition: all 0.3s ease;
+        }
+        
+        .card-hover:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0, 212, 255, 0.2);
+        }
+    </style>
+</head>
+<body class="gradient-bg min-h-screen text-white" x-data="leadCaptureApp()">
+    
+    <!-- Navigation -->
+    <nav class="fixed top-0 left-0 right-0 z-50 bg-cyber-dark/90 backdrop-blur-md border-b border-cyber-accent/20">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="flex justify-between items-center h-16">
+                <div class="flex items-center space-x-2">
+                    <div class="w-8 h-8 bg-gradient-to-br from-cyber-accent to-cyber-purple rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path>
+                        </svg>
+                    </div>
+                    <span class="text-xl font-bold glow-text">Vigil.AI</span>
+                </div>
+                <div class="hidden md:flex items-center space-x-8">
+                    <a href="#about" class="text-gray-300 hover:text-cyber-accent transition-colors">Sobre</a>
+                    <a href="#features" class="text-gray-300 hover:text-cyber-accent transition-colors">Recursos</a>
+                    <a href="#register" class="text-gray-300 hover:text-cyber-accent transition-colors">Registro</a>
+                    <a href="/dashboard" class="px-4 py-2 bg-cyber-accent/20 border border-cyber-accent/50 rounded-lg hover:bg-cyber-accent/30 transition-colors">
+                        Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="pt-24 pb-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-7xl mx-auto">
+            <div class="text-center mb-12">
+                <div class="inline-block px-4 py-2 bg-cyber-accent/10 border border-cyber-accent/30 rounded-full mb-6">
+                    <span class="text-cyber-accent text-sm font-medium">🎯 15-17 de Junho 2026 • São Paulo</span>
+                </div>
+                <h1 class="text-4xl md:text-6xl font-bold mb-6 glow-text">
+                    Vigil Summit
+                    <span class="block text-2xl md:text-3xl text-cyber-accent mt-2">Segurança para a Era da IA</span>
+                </h1>
+                <p class="text-xl text-gray-300 max-w-3xl mx-auto mb-8">
+                    O maior evento de cibersegurança da América Latina. Descubra como proteger sua organização 
+                    contra ameaças emergentes com inteligência artificial de ponta.
+                </p>
+                
+                <!-- Event Stats -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto mb-12">
+                    <div class="cyber-border rounded-lg p-4 card-hover">
+                        <div class="text-3xl font-bold text-cyber-accent">500+</div>
+                        <div class="text-gray-400 text-sm">Participantes</div>
+                    </div>
+                    <div class="cyber-border rounded-lg p-4 card-hover">
+                        <div class="text-3xl font-bold text-cyber-purple">50+</div>
+                        <div class="text-gray-400 text-sm">Palestrantes</div>
+                    </div>
+                    <div class="cyber-border rounded-lg p-4 card-hover">
+                        <div class="text-3xl font-bold text-cyber-green">30+</div>
+                        <div class="text-gray-400 text-sm">Workshops</div>
+                    </div>
+                    <div class="cyber-border rounded-lg p-4 card-hover">
+                        <div class="text-3xl font-bold text-cyber-red">3</div>
+                        <div class="text-gray-400 text-sm">Dias</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Registration Form Section -->
+    <section id="register" class="py-12 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-3xl mx-auto">
+            <div class="cyber-border rounded-2xl p-8 bg-cyber-blue/50 backdrop-blur-sm">
+                <div class="text-center mb-8">
+                    <h2 class="text-3xl font-bold mb-2">Garanta sua Vaga</h2>
+                    <p class="text-gray-300">Preencha o formulário abaixo para se registrar no Vigil Summit 2026</p>
+                </div>
+
+                <!-- Success Message -->
+                <div x-show="showSuccess" x-transition:enter="transition ease-out duration-300"
+                     x-transition:enter-start="opacity-0 transform scale-95"
+                     x-transition:enter-end="opacity-100 transform scale-100"
+                     x-transition:leave="transition ease-in duration-200"
+                     x-transition:leave-start="opacity-100 transform scale-100"
+                     x-transition:leave-end="opacity-0 transform scale-95"
+                     class="mb-8 p-6 bg-cyber-green/20 border border-cyber-green/50 rounded-xl">
+                    <div class="flex items-center mb-4">
+                        <div class="w-12 h-12 bg-cyber-green/20 rounded-full flex items-center justify-center mr-4">
+                            <svg class="w-6 h-6 text-cyber-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <h3 class="text-xl font-bold text-cyber-green">Registro Realizado com Sucesso!</h3>
+                            <p class="text-gray-300">Bem-vindo ao Vigil Summit 2026</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Agent Welcome Message -->
+                    <div x-show="agentMessage" class="mt-4 p-4 bg-cyber-blue/50 rounded-lg border-l-4 border-cyber-accent">
+                        <div class="flex items-start">
+                            <div class="w-8 h-8 bg-cyber-accent/20 rounded-full flex items-center justify-center mr-3 flex-shrink-0">
+                                <svg class="w-4 h-4 text-cyber-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="text-sm text-gray-400 mb-1">Mensagem do Agente IA:</p>
+                                <p class="text-white" x-text="agentMessage"></p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Enrichment Data -->
+                    <div x-show="enrichmentData" class="mt-4 grid grid-cols-2 gap-4">
+                        <div class="p-3 bg-cyber-dark/50 rounded-lg">
+                            <p class="text-xs text-gray-400 mb-1">Tamanho da Empresa</p>
+                            <p class="text-cyber-accent font-semibold" x-text="enrichmentData?.company_size || 'N/A'"></p>
+                        </div>
+                        <div class="p-3 bg-cyber-dark/50 rounded-lg">
+                            <p class="text-xs text-gray-400 mb-1">Indústria</p>
+                            <p class="text-cyber-purple font-semibold" x-text="enrichmentData?.industry || 'N/A'"></p>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-6 flex flex-col sm:flex-row gap-3">
+                        <a href="/dashboard" class="flex-1 text-center px-6 py-3 bg-cyber-accent hover:bg-cyber-accent/80 rounded-lg font-semibold transition-colors">
+                            Ver Dashboard
+                        </a>
+                        <button @click="resetForm" class="flex-1 px-6 py-3 border border-gray-600 hover:border-gray-500 rounded-lg font-semibold transition-colors">
+                            Registrar Outro
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Error Message -->
+                <div x-show="errorMessage" x-transition:enter="transition ease-out duration-300"
+                     x-transition:enter-start="opacity-0 transform scale-95"
+                     x-transition:enter-end="opacity-100 transform scale-100"
+                     class="mb-6 p-4 bg-cyber-red/20 border border-cyber-red/50 rounded-lg">
+                    <div class="flex items-center">
+                        <svg class="w-5 h-5 text-cyber-red mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        <span class="text-cyber-red" x-text="errorMessage"></span>
+                    </div>
+                </div>
+
+                <!-- Registration Form -->
+                <form x-show="!showSuccess" @submit.prevent="submitForm" class="space-y-6">
+                    <!-- Name Field -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Nome Completo *</label>
+                        <input type="text" 
+                               x-model="form.name" 
+                               @blur="validateField('name')"
+                               :class="{'border-cyber-red': errors.name, 'border-cyber-green': !errors.name && form.name}"
+                               class="w-full px-4 py-3 bg-cyber-dark/50 border border-gray-600 rounded-lg text-white placeholder-gray-500 input-focus transition-all"
+                               placeholder="Seu nome completo">
+                        <p x-show="errors.name" class="mt-1 text-sm text-cyber-red" x-text="errors.name"></p>
+                    </div>
+
+                    <!-- Email Field -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Email Corporativo *</label>
+                        <input type="email" 
+                               x-model="form.email" 
+                               @blur="validateField('email')"
+                               :class="{'border-cyber-red': errors.email, 'border-cyber-green': !errors.email && form.email}"
+                               class="w-full px-4 py-3 bg-cyber-dark/50 border border-gray-600 rounded-lg text-white placeholder-gray-500 input-focus transition-all"
+                               placeholder="seu.email@empresa.com">
+                        <p x-show="errors.email" class="mt-1 text-sm text-cyber-red" x-text="errors.email"></p>
+                    </div>
+
+                    <!-- Company Field -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Empresa *</label>
+                        <input type="text" 
+                               x-model="form.company" 
+                               @blur="validateField('company')"
+                               :class="{'border-cyber-red': errors.company, 'border-cyber-green': !errors.company && form.company}"
+                               class="w-full px-4 py-3 bg-cyber-dark/50 border border-gray-600 rounded-lg text-white placeholder-gray-500 input-focus transition-all"
+                               placeholder="Nome da sua empresa">
+                        <p x-show="errors.company" class="mt-1 text-sm text-cyber-red" x-text="errors.company"></p>
+                    </div>
+
+                    <!-- Job Title Field -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-300 mb-2">Cargo/Função *</label>
+                        <input type="text" 
+                               x-model="form.job_title" 
+                               @blur="validateField('job_title')"
+                               :class="{'border-cyber-red': errors.job_title, 'border-cyber-green': !errors.job_title && form.job_title}"
+                               class="w-full px-4 py-3 bg-cyber-dark/50 border border-gray-600 rounded-lg text-white placeholder-gray-500 input-focus transition-all"
+                               placeholder="Ex: Gerente de Segurança, CISO, etc.">
+                        <p x-show="errors.job_title" class="mt-1 text-sm text-cyber-red" x-text="errors.job_title"></p>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button type="submit" 
+                            :disabled="isSubmitting"
+                            class="w-full btn-cyber text-white font-semibold py-4 px-6 rounded-lg flex items-center justify-center">
+                        <svg x-show="isSubmitting" class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" 
+                             fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" 
+                                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                        <span x-text="isSubmitting ? 'Processando...' : 'Confirmar Registro'"></span>
+                    </button>
+                </form>
+
+                <!-- Form Info -->
+                <div class="mt-6 text-center text-sm text-gray-400">
+                    <p>🔒 Seus dados estão seguros e serão usados apenas para o evento.</p>
+                    <p class="mt-1">🤖 Nossa IA irá personalizar sua experiência automaticamente.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section id="features" class="py-16 px-4 sm:px-6 lg:px-8">
+        <div class="max-w-7xl mx-auto">
+            <h2 class="text-3xl font-bold text-center mb-12">O que você vai aprender</h2>
+            <div class="grid md:grid-cols-3 gap-8">
+                <div class="cyber-border rounded-xl p-6 card-hover">
+                    <div class="w-12 h-12 bg-cyber-accent/20 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-cyber-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-bold mb-2">IA em Cibersegurança</h3>
+                    <p class="text-gray-400">Descubra como machine learning está revolucionando a detecção e prevenção de ameaças.</p>
+                </div>
+                
+                <div class="cyber-border rounded-xl p-6 card-hover">
+                    <div class="w-12 h-12 bg-cyber-purple/20 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-cyber-purple" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-bold mb-2">Zero Trust Architecture</h3>
+                    <p class="text-gray-400">Implemente arquiteturas de segurança moderna com princípios Zero Trust.</p>
+                </div>
+                
+                <div class="cyber-border rounded-xl p-6 card-hover">
+                    <div class="w-12 h-12 bg-cyber-green/20 rounded-lg flex items-center justify-center mb-4">
+                        <svg class="w-6 h-6 text-cyber-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="text-xl font-bold mb-2">Threat Intelligence</h3>
+                    <p class="text-gray-400">Aprenda a usar inteligência de ameaças para antecipar ataques cibernéticos.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="py-8 px-4 border-t border-cyber-accent/20">
+        <div class="max-w-7xl mx-auto text-center text-gray-400">
+            <p>© 2026 Vigil.AI — Todos os direitos reservados</p>
+            <p class="mt-2 text-sm">Powered by Secu-Agent AI Lead Management System</p>
+        </div>
+    </footer>
+
+    <!-- Alpine.js Application Logic -->
+    <script>
+        function leadCaptureApp() {
+            return {
+                form: {
+                    name: '',
+                    email: '',
+                    company: '',
+                    job_title: ''
+                },
+                errors: {},
+                isSubmitting: false,
+                showSuccess: false,
+                errorMessage: '',
+                agentMessage: '',
+                enrichmentData: null,
+
+                validateField(field) {
+                    this.errors[field] = '';
+                    
+                    switch(field) {
+                        case 'name':
+                            if (!this.form.name.trim()) {
+                                this.errors.name = 'Nome é obrigatório';
+                            } else if (this.form.name.trim().length < 3) {
+                                this.errors.name = 'Nome deve ter pelo menos 3 caracteres';
+                            }
+                            break;
+                            
+                        case 'email':
+                            if (!this.form.email.trim()) {
+                                this.errors.email = 'Email é obrigatório';
+                            } else if (!this.isValidEmail(this.form.email)) {
+                                this.errors.email = 'Email inválido';
+                            }
+                            break;
+                            
+                        case 'company':
+                            if (!this.form.company.trim()) {
+                                this.errors.company = 'Empresa é obrigatória';
+                            } else if (this.form.company.trim().length < 2) {
+                                this.errors.company = 'Nome da empresa muito curto';
+                            }
+                            break;
+                            
+                        case 'job_title':
+                            if (!this.form.job_title.trim()) {
+                                this.errors.job_title = 'Cargo é obrigatório';
+                            } else if (this.form.job_title.trim().length < 2) {
+                                this.errors.job_title = 'Cargo muito curto';
+                            }
+                            break;
+                    }
+                },
+
+                isValidEmail(email) {
+                    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                    return re.test(email);
+                },
+
+                validateForm() {
+                    this.validateField('name');
+                    this.validateField('email');
+                    this.validateField('company');
+                    this.validateField('job_title');
+                    
+                    return Object.keys(this.errors).every(key => !this.errors[key]);
+                },
+
+                async submitForm() {
+                    if (!this.validateForm()) {
+                        return;
+                    }
+
+                    this.isSubmitting = true;
+                    this.errorMessage = '';
+
+                    try {
+                        const response = await fetch('/api/leads/capture', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                name: this.form.name.trim(),
+                                email: this.form.email.trim(),
+                                company: this.form.company.trim(),
+                                job_title: this.form.job_title.trim(),
+                                source: 'landing_page'
+                            })
+                        });
+
+                        const data = await response.json();
+
+                        if (!response.ok) {
+                            throw new Error(data.detail || 'Erro ao processar registro');
+                        }
+
+                        // Show success message
+                        this.showSuccess = true;
+                        
+                        // Extract agent message and enrichment data
+                        if (data.agent_processing && data.agent_processing.welcome_message) {
+                            this.agentMessage = data.agent_processing.welcome_message;
+                        } else {
+                            this.agentMessage = `Olá ${data.name}! Bem-vindo ao Vigil Summit 2026. Nossa IA está preparando uma experiência personalizada para você.`;
+                        }
+                        
+                        if (data.enrichment) {
+                            this.enrichmentData = data.enrichment;
+                        }
+
+                    } catch (error) {
+                        console.error('Submission error:', error);
+                        this.errorMessage = error.message || 'Erro ao processar registro. Tente novamente.';
+                    } finally {
+                        this.isSubmitting = false;
+                    }
+                },
+
+                resetForm() {
+                    this.form = {
+                        name: '',
+                        email: '',
+                        company: '',
+                        job_title: ''
+                    };
+                    this.errors = {};
+                    this.showSuccess = false;
+                    this.errorMessage = '';
+                    this.agentMessage = '';
+                    this.enrichmentData = null;
+                }
+            }
+        }
+    </script>
+</body>
+</html>
