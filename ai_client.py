@@ -2,11 +2,13 @@
 AI Client Module for Secu-Agent
 Implements ArliAI API integration based on API exploration discoveries.
 Extended with Agent class for lead capture and automated lead management.
+Enhanced with Clearbit enrichment and flexible LLM dispatcher.
 """
 
 import requests
 import json
 import re
+import os
 from typing import Dict, Any, List, Optional, Tuple
 import logging
 from datetime import datetime
@@ -18,9 +20,76 @@ with open('airli_config.json', 'r') as f:
 API_KEY = config['API_KEY']
 BASE_URL = config['BASE_URL']
 
+# LLM Provider Configuration
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
+LLM_API_KEY = os.getenv("LLM_API_KEY", API_KEY)
+LLM_API_URL = os.getenv("LLM_API_URL", BASE_URL)
+LLM_MODEL = os.getenv("LLM_MODEL", "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+def call_llm(system_prompt: str, user_message: str, history: Optional[List[Dict[str, str]]] = None) -> str:
+    """
+    LLM dispatcher that abstracts provider differences.
+    Supports OpenAI and Anthropic formats.
+    
+    Args:
+        system_prompt: System prompt for the LLM
+        user_message: User message to send
+        history: Conversation history (list of message dicts with 'role' and 'content')
+        
+    Returns:
+        LLM response text
+    """
+    if history is None:
+        history = []
+    
+    try:
+        if LLM_PROVIDER == "openai":
+            # OpenAI-compatible format (ArliAI, OpenAI, etc.)
+            headers = {
+                "Authorization": f"Bearer {LLM_API_KEY}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": LLM_MODEL,
+                "messages": [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": user_message}],
+                "max_tokens": 1024
+            }
+            response = requests.post(f"{LLM_API_URL}/v1/chat/completions", headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()['choices'][0]['message']['content']
+        
+        elif LLM_PROVIDER == "anthropic":
+            # Anthropic format
+            headers = {
+                "x-api-key": LLM_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": "claude-3-haiku-20240307",
+                "system": system_prompt,
+                "messages": history + [{"role": "user", "content": user_message}],
+                "max_tokens": 1024
+            }
+            response = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload)
+            response.raise_for_status()
+            return response.json()['content'][0]['text']
+        
+        else:
+            logger.error(f"Unsupported LLM provider: {LLM_PROVIDER}")
+            raise ValueError(f"Unsupported LLM provider: {LLM_PROVIDER}")
+    
+    except requests.exceptions.RequestException as e:
+        logger.error(f"LLM API request failed: {str(e)}")
+        raise
+    except (KeyError, IndexError) as e:
+        logger.error(f"Failed to parse LLM response: {str(e)}")
+        raise
 
 
 class AIClient:
@@ -64,21 +133,52 @@ class AIClient:
         Returns:
             API response as dictionary
         """
-        url = f"{self.base_url}/v1/chat/completions"
+        # Extract system prompt and user message from messages
+        system_prompt = ""
+        user_message = ""
+        history = []
         
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            **kwargs
-        }
+        for msg in messages:
+            if msg.get('role') == 'system':
+                system_prompt = msg.get('content', '')
+            elif msg.get('role') == 'user':
+                if not user_message:  # First user message
+                    user_message = msg.get('content', '')
+                else:
+                    history.append(msg)
+            else:
+                history.append(msg)
         
+        # Use LLM dispatcher if available
         try:
-            response = requests.post(url, headers=self.headers, json=payload)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            logger.error(f"AI API request failed: {str(e)}")
-            raise
+            content = call_llm(system_prompt, user_message, history)
+            # Return in OpenAI-compatible format
+            return {
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": content
+                    }
+                }]
+            }
+        except Exception as e:
+            logger.error(f"LLM dispatcher failed, falling back to direct API: {str(e)}")
+            # Fallback to direct API call
+            url = f"{self.base_url}/v1/chat/completions"
+            
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                **kwargs
+            }
+            
+            try:
+                response = requests.post(url, headers=self.headers, json=payload)
+                response.raise_for_status()
+                return response.json()
+            except requests.exceptions.RequestException as e:
+                logger.error(f"AI API request failed: {str(e)}")
+                raise
     
     def get_available_models(self) -> List[str]:
         """
@@ -751,13 +851,91 @@ Do NOT include tool calls in this message."""
     
     def enrich_lead_data(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Auto-enrich lead data with mock information.
+        Auto-enrich lead data using Clearbit API with fallback to mock data.
         
         Args:
             lead_data: Original lead data
             
         Returns:
             Enriched lead data
+        """
+        enriched = lead_data.copy()
+        
+        # Try to get domain from email
+        email = lead_data.get('email', '')
+        domain = None
+        if email and '@' in email:
+            domain = email.split('@')[1]
+        
+        # Try Clearbit API if we have a domain
+        if domain:
+            try:
+                response = requests.get(
+                    f"https://company.clearbit.com/v1/companies/suggest?query={domain}",
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    
+                    if data and len(data) > 0:
+                        company_info = data[0]
+                        
+                        # Extract available fields from Clearbit response
+                        enriched['company_name'] = company_info.get('name', lead_data.get('company', 'Unknown'))
+                        enriched['domain'] = company_info.get('domain', domain)
+                        
+                        # Extract industry from category structure
+                        category = company_info.get('category', {})
+                        if isinstance(category, dict):
+                            enriched['industry'] = category.get('industry', 'Unknown')
+                        else:
+                            enriched['industry'] = 'Unknown'
+                        
+                        # Get logo URL
+                        enriched['logo'] = company_info.get('logo', '')
+                        
+                        # Add company size if available
+                        if 'metrics' in company_info and 'employees' in company_info['metrics']:
+                            employees = company_info['metrics']['employees']
+                            if employees < 50:
+                                enriched['company_size'] = 'Small (1-50 employees)'
+                            elif employees < 200:
+                                enriched['company_size'] = 'Medium (51-200 employees)'
+                            else:
+                                enriched['company_size'] = 'Large (200+ employees)'
+                        
+                        logger.info(f"Successfully enriched lead data using Clearbit for domain: {domain}")
+                        enriched['enrichment_source'] = 'clearbit'
+                        enriched['enriched_at'] = datetime.utcnow().isoformat()
+                        return enriched
+                
+            except requests.exceptions.Timeout:
+                logger.warning(f"Clearbit API timeout for domain: {domain}")
+            except requests.exceptions.RequestException as e:
+                logger.warning(f"Clearbit API request failed for domain {domain}: {str(e)}")
+            except (json.JSONDecodeError, KeyError, IndexError) as e:
+                logger.warning(f"Failed to parse Clearbit response for domain {domain}: {str(e)}")
+            except Exception as e:
+                logger.error(f"Unexpected error during Clearbit enrichment: {str(e)}")
+        
+        # Fallback to mock enrichment if Clearbit fails or no domain available
+        logger.info(f"Using mock enrichment fallback for lead")
+        enriched = self._mock_enrichment(enriched)
+        enriched['enrichment_source'] = 'mock'
+        enriched['enriched_at'] = datetime.utcnow().isoformat()
+        
+        return enriched
+    
+    def _mock_enrichment(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Mock enrichment fallback when Clearbit API is unavailable.
+        
+        Args:
+            lead_data: Original lead data
+            
+        Returns:
+            Enriched lead data with mock information
         """
         enriched = lead_data.copy()
         
@@ -783,7 +961,9 @@ Do NOT include tool calls in this message."""
             else:
                 enriched['industry'] = 'General'
         
-        # Add enrichment timestamp
-        enriched['enriched_at'] = datetime.utcnow().isoformat()
+        # Ensure required fields exist
+        enriched.setdefault('company_name', lead_data.get('company', 'Unknown'))
+        enriched.setdefault('domain', '')
+        enriched.setdefault('logo', '')
         
         return enriched
