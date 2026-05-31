@@ -5,10 +5,15 @@ FastAPI application with database integration.
 
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
 import uvicorn
+import webbrowser
+import os
+import platform
 
 # Import database components
 from database import (
@@ -29,6 +34,9 @@ app = FastAPI(
     description="AI-powered lead management for Vigil.AI cybersecurity events",
     version="1.0.0"
 )
+
+# Mount static files directory
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 # Startup event - Initialize database
@@ -52,10 +60,22 @@ async def health_check():
     }
 
 
-# Root endpoint
+# Landing page route
 @app.get("/")
-async def root():
-    """Root endpoint with API information."""
+async def landing_page():
+    """Serve the landing page."""
+    return FileResponse('static/index.html')
+
+# Dashboard route
+@app.get("/dashboard")
+async def dashboard_page():
+    """Serve the dashboard page."""
+    return FileResponse('static/dashboard.html')
+
+# API info endpoint
+@app.get("/api/info")
+async def api_info():
+    """API information endpoint."""
     return {
         "name": "Secu-Agent AI Lead Management System",
         "version": "1.0.0",
@@ -63,7 +83,9 @@ async def root():
         "endpoints": {
             "health": "/health",
             "leads": "/leads",
-            "messages": "/messages"
+            "messages": "/messages",
+            "landing": "/",
+            "dashboard": "/dashboard"
         }
     }
 
@@ -471,6 +493,47 @@ async def general_exception_handler(request, exc):
 
 
 # Run the application
+def is_cloud_environment():
+    """Check if running in a cloud/environment where browser shouldn't open."""
+    # Check for common cloud environment variables
+    cloud_indicators = [
+        'AWS_LAMBDA_FUNCTION_NAME',
+        'GOOGLE_CLOUD_PROJECT',
+        'AZURE_FUNCTION_NAME',
+        'HEROKU',
+        'VERCEL',
+        'CLOUD_RUN',
+        'KUBERNETES_SERVICE_HOST',
+        'DOCKER_CONTAINER'
+    ]
+    
+    return any(indicator in os.environ for indicator in cloud_indicators)
+
+def open_browser():
+    """Open browser automatically if not in cloud environment."""
+    if not is_cloud_environment():
+        try:
+            # Give the server a moment to start
+            import threading
+            def delayed_open():
+                import time
+                time.sleep(1.5)  # Wait for server to start
+                webbrowser.open('http://127.0.0.1:8000')
+            
+            threading.Thread(target=delayed_open, daemon=True).start()
+        except Exception as e:
+            print(f"Could not open browser automatically: {e}")
+
 if __name__ == "__main__":
-    print("Starting Secu-Agent AI Lead Management System...")
+    print("🚀 Starting Secu-Agent AI Lead Management System...")
+    print("📊 Dashboard will be available at: http://127.0.0.1:8000")
+    print("🌐 Landing Page: http://127.0.0.1:8000/")
+    print("📈 Dashboard: http://127.0.0.1:8000/dashboard")
+    print("📚 API Docs: http://127.0.0.1:8000/docs")
+    print()
+    
+    # Open browser automatically if not in cloud environment
+    open_browser()
+    
+    # Run the server (0.0.0.0 allows access from any IP including cloud deployments)
     uvicorn.run(app, host="0.0.0.0", port=8000)
