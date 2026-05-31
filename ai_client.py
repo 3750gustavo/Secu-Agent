@@ -258,6 +258,7 @@ class Agent:
     # Tool call patterns for parsing AI responses
     TOOL_PATTERNS = {
         'SEND_EMAIL': r'SEND_EMAIL\{recipient:\s*([^,]+),\s*subject:\s*([^,]+),\s*body:\s*([^}]+)\}',
+        'SEND_SMS': r'SEND_SMS\{phone:\s*([^,]+),\s*message:\s*([^}]+)\}',
         'SCHEDULE_REMINDER': r'SCHEDULE_REMINDER\{when:\s*([^,]+),\s*message:\s*([^}]+)\}',
         'UPDATE_STATUS': r'UPDATE_STATUS\{new_status:\s*([^}]+)\}',
         'REQUEST_INFO': r'REQUEST_INFO\{field:\s*([^,]+),\s*reason:\s*([^}]+)\}'
@@ -536,21 +537,56 @@ Do NOT include tool calls in this message."""
         
         try:
             if tool_name == 'SEND_EMAIL':
-                # In a real implementation, this would send an actual email
+                # Use communication service to send email
                 recipient, subject, body = parameters
                 self.logger.info(f"SEND_EMAIL executed: To={recipient}, Subject={subject}")
                 
-                # Store as message in database
-                from database import MessageOperations
-                MessageOperations.create_message(
-                    db=db_session,
+                # Import and use communication service
+                from communication import get_communication_service
+                comm_service = get_communication_service()
+                
+                result = comm_service.send_email(
+                    to=recipient.strip(),
+                    subject=subject.strip(),
+                    body=body.strip(),
                     lead_id=lead.get('id'),
-                    message_text=body,
-                    channel="email",
-                    direction="outbound"
+                    db_session=db_session,
+                    html=False
                 )
                 
-                return {"success": True, "action": "email_sent", "recipient": recipient}
+                return {
+                    "success": result.get("success", False),
+                    "action": "email_sent",
+                    "recipient": recipient,
+                    "message_id": result.get("message_id"),
+                    "status": result.get("status"),
+                    "error": result.get("error")
+                }
+            
+            elif tool_name == 'SEND_SMS':
+                # Use communication service to send SMS
+                phone, message = parameters
+                self.logger.info(f"SEND_SMS executed: To={phone}")
+                
+                # Import and use communication service
+                from communication import get_communication_service
+                comm_service = get_communication_service()
+                
+                result = comm_service.send_sms(
+                    phone=phone.strip(),
+                    message=message.strip(),
+                    lead_id=lead.get('id'),
+                    db_session=db_session
+                )
+                
+                return {
+                    "success": result.get("success", False),
+                    "action": "sms_sent",
+                    "phone": phone,
+                    "message_id": result.get("message_id"),
+                    "status": result.get("status"),
+                    "error": result.get("error")
+                }
             
             elif tool_name == 'SCHEDULE_REMINDER':
                 when, message = parameters
