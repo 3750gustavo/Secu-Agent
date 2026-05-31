@@ -11,7 +11,7 @@ import re
 import os
 from typing import Dict, Any, List, Optional, Tuple
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Load configuration
 with open('airli_config.json', 'r') as f:
@@ -21,10 +21,11 @@ API_KEY = config['API_KEY']
 BASE_URL = config['BASE_URL']
 
 # LLM Provider Configuration
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
+# Priority: Environment variables > Config file > Defaults
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", config.get('LLM_PROVIDER', 'openai'))
 LLM_API_KEY = os.getenv("LLM_API_KEY", API_KEY)
 LLM_API_URL = os.getenv("LLM_API_URL", BASE_URL)
-LLM_MODEL = os.getenv("LLM_MODEL", "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled")
+LLM_MODEL = os.getenv("LLM_MODEL", config.get('LLM_MODEL', 'Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled'))
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -907,7 +908,7 @@ Do NOT include tool calls in this message."""
                         
                         logger.info(f"Successfully enriched lead data using Clearbit for domain: {domain}")
                         enriched['enrichment_source'] = 'clearbit'
-                        enriched['enriched_at'] = datetime.utcnow().isoformat()
+                        enriched['enriched_at'] = datetime.now(timezone.utc).isoformat()
                         return enriched
                 
             except requests.exceptions.Timeout:
@@ -923,7 +924,7 @@ Do NOT include tool calls in this message."""
         logger.info(f"Using mock enrichment fallback for lead")
         enriched = self._mock_enrichment(enriched)
         enriched['enrichment_source'] = 'mock'
-        enriched['enriched_at'] = datetime.utcnow().isoformat()
+        enriched['enriched_at'] = datetime.now(timezone.utc).isoformat()
         
         return enriched
     
