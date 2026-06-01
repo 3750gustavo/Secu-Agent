@@ -180,6 +180,15 @@ O sistema implementa comunicações proativas baseadas em tempo e comportamento:
 
 ## 🚀 Comece em 3 Minutos
 
+### 🌟 Deploy em Produção com Railway
+
+O Secu-Agent está **deployado e operacional** em produção na plataforma Railway cloud com:
+- ✅ HTTPS automático e certificados SSL
+- ✅ Monitoramento em tempo real
+- ✅ Sistema de rate limiting inteligente
+- ✅ Escalabilidade automática
+- ✅ Logs e métricas integradas
+
 ### Pré-requisitos
 
 - Python 3.8 ou superior
@@ -466,3 +475,5 @@ Acesse http://localhost:8000 e veja a mágica acontecer! 🚀
 **Secu-Agent** - Onde Inteligência Artificial Encontra Gestão de Leads
 
 *Powered by Vigil.AI - Líder em Cibersegurança*
+
+*Deploy em Produção: Railway Cloud Platform*
