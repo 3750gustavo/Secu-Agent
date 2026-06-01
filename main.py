@@ -24,7 +24,7 @@ from database import (
 )
 
 # Import AI client and Agent
-from ai_client import Agent
+from ai_client import Agent, EngagementRules
 
 # Import communication services
 from communication import get_communication_service
@@ -485,6 +485,267 @@ async def get_communication_stats(db: Session = Depends(get_db)):
         "statistics": stats,
         "timestamp": datetime.utcnow().isoformat()
     }
+
+
+# Engagement Rules endpoints
+@app.get("/api/rules", response_model=dict)
+async def get_engagement_rules():
+    """
+    Get all engagement rules with their metadata.
+    Returns information about all registered engagement rules.
+    """
+    try:
+        # Create engagement rules instance
+        rules_engine = EngagementRules()
+        rules = rules_engine.get_all_rules()
+        
+        return {
+            "total_rules": len(rules),
+            "event_date": rules_engine.event_date.isoformat(),
+            "rules": rules,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get engagement rules: {str(e)}")
+
+
+@app.post("/api/rules/evaluate/{lead_id}", response_model=dict)
+async def evaluate_rules_for_lead(
+    lead_id: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Evaluate and execute engagement rules for a specific lead.
+    
+    This endpoint:
+    - Retrieves the lead from database
+    - Calculates engagement score and context
+    - Evaluates all applicable engagement rules
+    - Executes matching rules and returns results
+    """
+    try:
+        # Get lead from database
+        lead = LeadOperations.get_lead(db, lead_id)
+        if not lead:
+            raise HTTPException(status_code=404, detail="Lead not found")
+        
+        # Create lead dictionary
+        lead_dict = {
+            'id': lead.id,
+            'name': lead.name,
+            'email': lead.email,
+            'company': lead.company,
+            'job_title': lead.job_title,
+            'status': lead.status,
+            'source': lead.source
+        }
+        
+        # Create engagement rules engine and agent
+        rules_engine = EngagementRules()
+        agent = Agent()
+        
+        # Calculate engagement score
+        engagement_score = rules_engine.get_engagement_score(lead_dict, db)
+        
+        # Build context for rule evaluation
+        context = {
+            'engagement_score': engagement_score,
+            'event_date': rules_engine.event_date,
+            'sessions_attended': [],  # Could be populated from database
+            'last_email_opened': None,  # Could be populated from tracking
+            'last_contact_date': lead.updated_at
+        }
+        
+        # Evaluate and execute rules
+        results = rules_engine.evaluate_rules_for_lead(lead_dict, context, agent, db)
+        
+        return {
+            "lead_id": lead_id,
+            "lead_name": lead.name,
+            "lead_status": lead.status,
+            "engagement_score": engagement_score,
+            "rules_evaluated": len(rules_engine.rules),
+            "rules_matched": len(results),
+            "execution_results": results,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to evaluate rules: {str(e)}")
+
+
+@app.post("/api/rules/process-all", response_model=dict)
+async def process_rules_for_all_leads(db: Session = Depends(get_db)):
+    """
+    Process engagement rules for all leads in the database.
+    
+    This endpoint:
+    - Retrieves all leads from database
+    - Evaluates engagement rules for each lead
+    - Executes applicable rules
+    - Returns summary of processing results
+    """
+    try:
+        # Get all leads
+        leads = LeadOperations.get_all_leads(db)
+        
+        if not leads:
+            return {
+                "total_leads": 0,
+                "processed": 0,
+                "rules_matched": 0,
+                "message": "No leads found in database",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        
+        # Create engagement rules engine and agent
+        rules_engine = EngagementRules()
+        agent = Agent()
+        
+        # Process each lead
+        total_matched = 0
+        processing_results = []
+        
+        for lead in leads:
+            lead_dict = {
+                'id': lead.id,
+                'name': lead.name,
+                'email': lead.email,
+                'company': lead.company,
+                'job_title': lead.job_title,
+                'status': lead.status,
+                'source': lead.source
+            }
+            
+            # Calculate engagement score
+            engagement_score = rules_engine.get_engagement_score(lead_dict, db)
+            
+            # Build context
+            context = {
+                'engagement_score': engagement_score,
+                'event_date': rules_engine.event_date,
+                'sessions_attended': [],
+                'last_email_opened': None,
+                'last_contact_date': lead.updated_at
+            }
+            
+            # Evaluate rules
+            results = rules_engine.evaluate_rules_for_lead(lead_dict, context, agent, db)
+            
+            if results:
+                total_matched += len(results)
+                processing_results.append({
+                    "lead_id": lead.id,
+                    "lead_name": lead.name,
+                    "lead_status": lead.status,
+                    "engagement_score": engagement_score,
+                    "rules_matched": len(results),
+                    "results": results
+                })
+        
+        return {
+            "total_leads": len(leads),
+            "processed": len(leads),
+            "total_rules_matched": total_matched,
+            "leads_with_matches": len(processing_results),
+            "processing_results": processing_results,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process rules for all leads: {str(e)}")
+
+
+@app.get("/api/rules/schedule", response_model=dict)
+async def get_upcoming_scheduled_actions(db: Session = Depends(get_db)):
+    """
+    Get upcoming scheduled actions based on time-based engagement rules.
+    
+    This endpoint:
+    - Retrieves all leads from database
+    - Predicts when time-based rules will trigger
+    - Returns sorted list of upcoming actions
+    """
+    try:
+        # Get all leads
+        leads = LeadOperations.get_all_leads(db)
+        
+        if not leads:
+            return {
+                "total_leads": 0,
+                "upcoming_actions": [],
+                "message": "No leads found in database",
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        
+        # Create engagement rules engine
+        rules_engine = EngagementRules()
+        
+        # Convert leads to dictionaries
+        leads_dicts = [
+            {
+                'id': lead.id,
+                'name': lead.name,
+                'email': lead.email,
+                'company': lead.company,
+                'job_title': lead.job_title,
+                'status': lead.status,
+                'source': lead.source
+            }
+            for lead in leads
+        ]
+        
+        # Build context
+        context = {
+            'event_date': rules_engine.event_date
+        }
+        
+        # Get upcoming actions
+        upcoming_actions = rules_engine.get_upcoming_actions(leads_dicts, context)
+        
+        return {
+            "total_leads": len(leads),
+            "upcoming_actions_count": len(upcoming_actions),
+            "event_date": rules_engine.event_date.isoformat(),
+            "upcoming_actions": upcoming_actions,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get upcoming schedule: {str(e)}")
+
+
+@app.post("/api/rules/event-date", response_model=dict)
+async def update_event_date(request: dict):
+    """
+    Update the event date for time-based engagement rules.
+    
+    Args:
+        request: Dictionary with 'event_date' in ISO format
+    """
+    try:
+        event_date_str = request.get('event_date')
+        if not event_date_str:
+            raise HTTPException(status_code=400, detail="event_date is required")
+        
+        # Parse the date
+        try:
+            event_date = datetime.fromisoformat(event_date_str)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use ISO format (YYYY-MM-DDTHH:MM:SS)")
+        
+        # Create rules engine and update date
+        rules_engine = EngagementRules()
+        rules_engine.set_event_date(event_date)
+        
+        return {
+            "message": "Event date updated successfully",
+            "event_date": event_date.isoformat(),
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update event date: {str(e)}")
 
 
 # Error handlers
