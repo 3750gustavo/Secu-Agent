@@ -46,10 +46,27 @@ if not API_KEY and not LLM_API_KEY:
     logger.warning("No API key configured. Set AIRLI_API_KEY or LLM_API_KEY environment variable, or create airli_config.json")
 
 # Global semaphore for AI API rate limiting (1 concurrent request globally)
+# Subscription allows 2 parallel requests, we limit to 1 to leave 1 free for owner
 _ai_semaphore = asyncio.Semaphore(1)
 
 # BRT timezone for logging
 BRT_TZ = tz('America/Sao_Paulo')
+
+# Scheduled task queue for non-critical AI calls
+_scheduled_tasks: List[Dict[str, Any]] = []
+_scheduled_tasks_lock = asyncio.Lock()
+_scheduler_running = False
+
+# Error tracking for cooldown system
+_consecutive_errors = 0
+_error_cooldown_until = None
+_error_tracking_lock = asyncio.Lock()
+COOLDOWN_DURATION = 3600  # 1 hour cooldown after 3 consecutive errors
+MAX_CONSECUTIVE_ERRORS = 3
+
+# Priority levels
+PRIORITY_IMMEDIATE = "immediate"  # For dashboard, user-facing features
+PRIORITY_SCHEDULED = "scheduled"  # For emails, background tasks
 
 def get_brt_timestamp() -> str:
     """Get current timestamp in BRT timezone."""
@@ -66,26 +83,136 @@ def get_caller_context() -> str:
         return f"{os.path.basename(filename)}:{function_name}:{line_no}"
     return "unknown"
 
+def is_off_peak_hours() -> bool:
+    """Check if current time is within off-peak hours (2am-6am BRT)."""
+    current_hour = datetime.now(BRT_TZ).hour
+    return 2 <= current_hour < 6
+
+async def start_scheduler():
+    """Start the background scheduler for non-critical tasks."""
+    global _scheduler_running
+    if _scheduler_running:
+        return
+    
+    _scheduler_running = True
+    logger.info(f"[{get_brt_timestamp()}] AI Task Scheduler started")
+    
+    while _scheduler_running:
+        try:
+            if is_off_peak_hours() and _scheduled_tasks:
+                async with _scheduled_tasks_lock:
+                    if _scheduled_tasks:
+                        task = _scheduled_tasks.pop(0)
+                        logger.info(f"[{get_brt_timestamp()}] Processing scheduled task: {task['reason']}")
+                        
+                        # Execute the scheduled task
+                        try:
+                            result = await task['func'](*task['args'], **task['kwargs'])
+                            logger.info(f"[{get_brt_timestamp()}] Scheduled task completed: {task['reason']}")
+                        except Exception as e:
+                            logger.error(f"[{get_brt_timestamp()}] Scheduled task failed: {task['reason']} | Error: {str(e)}")
+            
+            # Check every minute
+            await asyncio.sleep(60)
+            
+        except Exception as e:
+            logger.error(f"[{get_brt_timestamp()}] Scheduler error: {str(e)}")
+            await asyncio.sleep(60)
+
+async def schedule_ai_call(func: Callable, *args, priority: str = PRIORITY_IMMEDIATE, reason: str = "unknown", **kwargs):
+    """
+    Schedule an AI call with priority.
+    
+    Args:
+        func: The async function to call
+        *args: Positional arguments for the function
+        priority: Priority level (PRIORITY_IMMEDIATE or PRIORITY_SCHEDULED)
+        reason: Business reason for this call (for logging)
+        **kwargs: Keyword arguments for the function
+        
+    Returns:
+        Function result if immediate, None if scheduled
+    """
+    caller_context = get_caller_context()
+    
+    if priority == PRIORITY_IMMEDIATE:
+        # Execute immediately
+        logger.info(f"[{get_brt_timestamp()}] Immediate AI call - Reason: {reason} | Caller: {caller_context}")
+        return await func(*args, **kwargs)
+    else:
+        # Schedule for off-peak hours
+        async with _scheduled_tasks_lock:
+            _scheduled_tasks.append({
+                'func': func,
+                'args': args,
+                'kwargs': kwargs,
+                'reason': reason,
+                'queued_at': get_brt_timestamp(),
+                'caller': caller_context
+            })
+            logger.info(f"[{get_brt_timestamp()}] AI call SCHEDULED for off-peak - Reason: {reason} | Caller: {caller_context} | Queue size: {len(_scheduled_tasks)}")
+        
+        # Start scheduler if not running
+        if not _scheduler_running:
+            asyncio.create_task(start_scheduler())
+        
+        return None
 
 
-async def call_llm_with_limit(system_prompt: str, user_message: str, history: Optional[List[Dict[str, str]]] = None, reason: str = "unknown") -> str:
+
+async def call_llm_with_limit(system_prompt: str, user_message: str, history: Optional[List[Dict[str, str]]] = None, reason: str = "unknown", priority: str = PRIORITY_IMMEDIATE) -> str:
     """
     LLM dispatcher with global rate limiting using semaphore.
-    Only 1 AI API call can execute at a time globally.
+    Only 1 AI API call can execute at a time globally (leaves 1 free for owner).
     Requests are queued and processed in order.
+    Implements cooldown after 3 consecutive errors to prevent shadowban.
     
     Args:
         system_prompt: System prompt for the LLM
         user_message: User message to send
         history: Conversation history (list of message dicts with 'role' and 'content')
         reason: Business reason/context for this AI call (for logging)
+        priority: Priority level (PRIORITY_IMMEDIATE or PRIORITY_SCHEDULED)
         
     Returns:
         LLM response text
+        
+    Raises:
+        Exception: If in cooldown period due to consecutive errors
     """
+    global _consecutive_errors, _error_cooldown_until
+    
     caller_context = get_caller_context()
     timestamp = get_brt_timestamp()
     
+    # Check if we're in cooldown period
+    async with _error_tracking_lock:
+        if _error_cooldown_until and datetime.now(BRT_TZ) < _error_cooldown_until:
+            cooldown_remaining = (_error_cooldown_until - datetime.now(BRT_TZ)).total_seconds()
+            logger.warning(f"[{timestamp}] AI Request REJECTED - In cooldown period | Reason: {reason} | Caller: {caller_context} | Cooldown remaining: {cooldown_remaining:.0f}s")
+            raise Exception(f"AI service in cooldown due to consecutive errors. Try again in {cooldown_remaining:.0f} seconds.")
+    
+    # Schedule based on priority
+    if priority == PRIORITY_SCHEDULED:
+        async with _scheduled_tasks_lock:
+            _scheduled_tasks.append({
+                'func': _call_llm_internal,
+                'args': (system_prompt, user_message, history),
+                'kwargs': {},
+                'reason': reason,
+                'queued_at': timestamp,
+                'caller': caller_context
+            })
+            logger.info(f"[{timestamp}] AI call SCHEDULED for off-peak - Reason: {reason} | Caller: {caller_context} | Queue size: {len(_scheduled_tasks)}")
+        
+        # Start scheduler if not running
+        if not _scheduler_running:
+            asyncio.create_task(start_scheduler())
+        
+        # Return empty string for scheduled calls (caller should handle None appropriately)
+        return ""
+    
+    # Immediate execution
     logger.info(f"[{timestamp}] AI Request QUEUED - Reason: {reason} | Caller: {caller_context}")
     
     async with _ai_semaphore:
@@ -93,12 +220,31 @@ async def call_llm_with_limit(system_prompt: str, user_message: str, history: Op
         logger.info(f"[{execution_timestamp}] AI Request STARTING - Reason: {reason} | Caller: {caller_context}")
         try:
             result = await _call_llm_internal(system_prompt, user_message, history)
+            
+            # Reset error counter on success
+            async with _error_tracking_lock:
+                if _consecutive_errors > 0:
+                    logger.info(f"[{get_brt_timestamp()}] Resetting consecutive error counter (was {_consecutive_errors})")
+                    _consecutive_errors = 0
+                    _error_cooldown_until = None
+            
             completion_timestamp = get_brt_timestamp()
             logger.info(f"[{completion_timestamp}] AI Request COMPLETED - Reason: {reason} | Caller: {caller_context}")
             return result
+            
         except Exception as e:
             error_timestamp = get_brt_timestamp()
-            logger.error(f"[{error_timestamp}] AI Request FAILED - Reason: {reason} | Caller: {caller_context} | Error: {str(e)}")
+            
+            # Track consecutive errors
+            async with _error_tracking_lock:
+                _consecutive_errors += 1
+                logger.error(f"[{error_timestamp}] AI Request FAILED - Reason: {reason} | Caller: {caller_context} | Error: {str(e)} | Consecutive errors: {_consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}")
+                
+                # Activate cooldown if threshold reached
+                if _consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                    _error_cooldown_until = datetime.now(BRT_TZ) + timedelta(seconds=COOLDOWN_DURATION)
+                    logger.critical(f"[{error_timestamp}] COOLDOWN ACTIVATED - {MAX_CONSECUTIVE_ERRORS} consecutive errors | Cooldown until: {_error_cooldown_until.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+            
             raise
 
 
