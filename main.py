@@ -779,7 +779,10 @@ def is_cloud_environment():
         'VERCEL',
         'CLOUD_RUN',
         'KUBERNETES_SERVICE_HOST',
-        'DOCKER_CONTAINER'
+        'DOCKER_CONTAINER',
+        'RAILWAY_ENVIRONMENT',
+        'RAILWAY_SERVICE_NAME',
+        'RAILWAY_PROJECT_NAME'
     ]
     
     return any(indicator in os.environ for indicator in cloud_indicators)
@@ -800,15 +803,25 @@ def open_browser():
             print(f"Could not open browser automatically: {e}")
 
 if __name__ == "__main__":
-    print("🚀 Starting Secu-Agent AI Lead Management System...")
-    print("📊 Dashboard will be available at: http://127.0.0.1:8000")
-    print("🌐 Landing Page: http://127.0.0.1:8000/")
-    print("📈 Dashboard: http://127.0.0.1:8000/dashboard")
-    print("📚 API Docs: http://127.0.0.1:8000/docs")
-    print()
+    # Get port from environment variable (Railway sets this) or default to 8000
+    port = int(os.getenv("PORT", 8000))
     
-    # Open browser automatically if not in cloud environment
-    open_browser()
+    if is_cloud_environment():
+        print("🚀 Starting Secu-Agent AI Lead Management System (Cloud Mode)...")
+        print(f"📊 Running on port: {port}")
+        print("🌐 Environment: Production Cloud")
+        print("💾 Database: PostgreSQL (Railway)")
+    else:
+        print("🚀 Starting Secu-Agent AI Lead Management System...")
+        print("📊 Dashboard will be available at: http://127.0.0.1:8000")
+        print("🌐 Landing Page: http://127.0.0.1:8000/")
+        print("📈 Dashboard: http://127.0.0.1:8000/dashboard")
+        print("📚 API Docs: http://127.0.0.1:8000/docs")
+        print("💾 Database: SQLite (Local)")
+        print()
+        
+        # Open browser automatically if not in cloud environment
+        open_browser()
     
     # Run the server (0.0.0.0 allows access from any IP including cloud deployments)
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=port)
