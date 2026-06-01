@@ -68,9 +68,21 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 # Startup event - Initialize database
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database on application startup."""
-    init_db()
-    print("✓ Database initialized successfully")
+    """Initialize database on application startup with migration support."""
+    try:
+        # Run database migration
+        import migrate_db
+        migration_success = migrate_db.migrate_database()
+        
+        if migration_success:
+            print("✓ Database migration completed successfully")
+        else:
+            print("⚠️  Database migration had issues, but continuing...")
+    except Exception as e:
+        print(f"⚠️  Database migration warning: {str(e)}")
+        # Fallback to basic initialization
+        init_db()
+        print("✓ Database initialized (fallback mode)")
 
 
 # Health check endpoint

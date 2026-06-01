@@ -11,15 +11,45 @@ import os
 
 # Database Configuration
 # Support both SQLite (local) and PostgreSQL (Railway production)
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///vigil_agent.db")
+# Priority: Environment variable > Cloud detection > SQLite default
+
+def is_cloud_environment():
+    """Detect if running in cloud environment (Railway, etc.)"""
+    cloud_indicators = [
+        'RAILWAY_ENVIRONMENT',
+        'RAILWAY_SERVICE_NAME',
+        'RAILWAY_PROJECT_NAME',
+        'RAILWAY_PUBLIC_DOMAIN',
+        'DATABASE_URL',  # Railway sets this automatically
+        'AWS_LAMBDA_FUNCTION_NAME',
+        'GOOGLE_CLOUD_PROJECT',
+        'HEROKU',
+        'VERCEL'
+    ]
+    return any(indicator in os.environ for indicator in cloud_indicators)
+
+# Determine database URL based on environment
+if os.getenv("DATABASE_URL"):
+    # Railway or other cloud provider explicitly set DATABASE_URL
+    DATABASE_URL = os.getenv("DATABASE_URL")
+elif is_cloud_environment():
+    # Cloud environment but no DATABASE_URL set - this shouldn't happen in Railway
+    # Fall back to SQLite but warn
+    DATABASE_URL = "sqlite:///vigil_agent.db"
+    print("⚠️  Warning: Cloud environment detected but no DATABASE_URL set. Using SQLite.")
+else:
+    # Local development - prefer SQLite
+    DATABASE_URL = "sqlite:///vigil_agent.db"
 
 # Create engine with appropriate configuration based on database type
 if DATABASE_URL.startswith("postgres"):
     # PostgreSQL configuration for Railway
     engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
+    print("💾 Using PostgreSQL database (Railway)")
 else:
     # SQLite configuration for local development
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+    print("💾 Using SQLite database (Local)")
 
 # Enable foreign key constraints for SQLite
 @event.listens_for(engine, "connect")
