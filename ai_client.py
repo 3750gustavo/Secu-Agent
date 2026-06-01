@@ -5,6 +5,8 @@ Extended with Agent class for lead capture and automated lead management.
 Enhanced with Clearbit enrichment and flexible LLM dispatcher.
 """
 
+from __future__ import annotations
+
 import requests
 import json
 import re
