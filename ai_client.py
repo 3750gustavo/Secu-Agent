@@ -13,23 +13,33 @@ from typing import Dict, Any, List, Optional, Tuple, Callable
 import logging
 from datetime import datetime, timezone, timedelta
 
-# Load configuration
-with open('airli_config.json', 'r') as f:
-    config = json.load(f)
+# Load configuration - try config file first, fall back to environment variables
+config = {}
+try:
+    with open('airli_config.json', 'r') as f:
+        config = json.load(f)
+except FileNotFoundError:
+    # Config file not found, will use environment variables
+    pass
 
-API_KEY = config['API_KEY']
-BASE_URL = config['BASE_URL']
+# Priority: Environment variables > Config file > Defaults
+API_KEY = os.getenv("AIRLI_API_KEY", config.get('API_KEY', ""))
+BASE_URL = os.getenv("AIRLI_BASE_URL", config.get('BASE_URL', "https://api.arliai.dev/v1"))
 
 # LLM Provider Configuration
-# Priority: Environment variables > Config file > Defaults
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", config.get('LLM_PROVIDER', 'openai'))
 LLM_API_KEY = os.getenv("LLM_API_KEY", API_KEY)
 LLM_API_URL = os.getenv("LLM_API_URL", BASE_URL)
 LLM_MODEL = os.getenv("LLM_MODEL", config.get('LLM_MODEL', 'Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled'))
 
+# Validate required configuration
+if not API_KEY and not LLM_API_KEY:
+    logger.warning("No API key configured. Set AIRLI_API_KEY or LLM_API_KEY environment variable, or create airli_config.json")
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 
 
 def call_llm(system_prompt: str, user_message: str, history: Optional[List[Dict[str, str]]] = None) -> str:
