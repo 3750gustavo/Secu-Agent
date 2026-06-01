@@ -38,17 +38,27 @@ Secu-Agent is an AI-powered lead management system designed for Vigil.AI's cyber
 │  TailwindCSS │     │  • REST API  │     │  • Leads     │     │  • ArliAI    │
 │  Landing Page│     │  • Agent     │     │  • Messages  │     │  • Anthropic │
 │  Dashboard   │     │  • Rules     │     │  • Relations │     │  • OpenAI    │
-└──────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-                            │
-                            ▼
-                     ┌──────────────┐
-                     │ COMMUNICATION│
-                     │   SERVICE    │
-                     │              │
-                     │  • Email     │
-                     │  • SMS       │
-                     │  • Logging   │
-                     └──────────────┘
+└──────────────┘     └──────┬───────┘     └──────────────┘     └──────┬───────┘
+                            │                                          │
+                            │         ┌──────────────┐                  │
+                            └────────▶│ RATE LIMITER │◀─────────────────┘
+                                      │   SYSTEM     │
+                                      │              │
+                                      │  • Semaphore │
+                                      │  • Priority  │
+                                      │  • Cooldown  │
+                                      │  • Scheduling│
+                                      └──────┬───────┘
+                                             │
+                                             ▼
+                                      ┌──────────────┐
+                                      │ COMMUNICATION│
+                                      │   SERVICE    │
+                                      │              │
+                                      │  • Email     │
+                                      │  • SMS       │
+                                      │  • Logging   │
+                                      └──────────────┘
 ```
 
 ### Data Flow
