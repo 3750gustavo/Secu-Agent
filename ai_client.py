@@ -1410,7 +1410,13 @@ class EngagementRules:
             last_contact = context.get('last_contact_date')
             if not last_contact:
                 return False
-            days_since_contact = (datetime.now(timezone.utc) - last_contact).days
+            
+            # Handle both timezone-aware and naive datetimes
+            now = datetime.now(timezone.utc)
+            if last_contact.tzinfo is None:
+                last_contact = last_contact.replace(tzinfo=timezone.utc)
+            
+            days_since_contact = (now - last_contact).days
             return days_since_contact >= 14 and lead.get('status') == 'contacted'
         
         def action_de_priority(lead, context, agent, db_session):
@@ -1637,7 +1643,15 @@ class EngagementRules:
             # Bonus for recent activity
             if messages:
                 last_message = max(messages, key=lambda m: m.timestamp)
-                days_since = (datetime.now(timezone.utc) - last_message.timestamp).days
+                # Handle both timezone-aware and naive datetimes
+                now = datetime.now(timezone.utc)
+                msg_time = last_message.timestamp
+                
+                # Convert naive datetime to aware if needed
+                if msg_time.tzinfo is None:
+                    msg_time = msg_time.replace(tzinfo=timezone.utc)
+                
+                days_since = (now - msg_time).days
                 if days_since <= 7:
                     score += 2
                 elif days_since <= 14:
