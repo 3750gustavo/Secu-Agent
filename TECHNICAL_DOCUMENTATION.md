@@ -106,6 +106,14 @@ Secu-Agent is an AI-powered lead management system designed for Vigil.AI's cyber
 - Database logging for all communications
 - Template-based messaging
 
+**Rate Limiting Layer:**
+- Global semaphore for AI request management
+- Priority scheduling system (immediate vs scheduled)
+- Off-peak processing (2am-6am BRT)
+- Cooldown system for error recovery
+- Enhanced logging with BRT timestamps
+- Thread-safe concurrent access protection
+
 ---
 
 ## Technology Stack
@@ -811,10 +819,67 @@ Update the event date for time-based rules.
 ```
 
 ### Rate Limiting
-Currently no rate limiting implemented. Future versions may include:
+
+**AI Rate Limiting System (Implemented):**
+
+The system implements a comprehensive rate limiting mechanism for AI API calls to prevent abuse and optimize resource usage:
+
+**Global Semaphore:**
+- Limits to 1 concurrent AI request (leaves 1 free for API owner)
+- Uses asyncio.Semaphore for thread-safe operation
+- Serializes concurrent requests with queue management
+- Prevents API rate limit violations and shadowban
+
+**Priority Scheduling:**
+- **Immediate Priority**: Dashboard interactions, user-facing features
+- **Scheduled Priority**: Background tasks, email generation, batch processing
+- Smart queuing based on business criticality
+- Immediate requests processed before scheduled ones
+
+**Off-Peak Processing:**
+- Non-critical tasks scheduled for 2am-6am BRT
+- Reduces API load during peak hours
+- Optimizes cost efficiency
+- Configurable time windows
+
+**Cooldown System:**
+- Activates after 3 consecutive API errors
+- 1-hour cooldown duration (3600 seconds)
+- Prevents API abuse during service outages
+- Automatic recovery after cooldown period
+- Error tracking with consecutive count
+
+**Enhanced Logging:**
+- All AI requests logged with BRT timestamps
+- Business reason context for each request
+- Caller context (filename:function:line)
+- Request status tracking (QUEUED, STARTING, COMPLETED, FAILED)
+- Error monitoring and alerting
+
+**Configuration:**
+```python
+# Global rate limiting
+_ai_semaphore = asyncio.Semaphore(1)  # 1 concurrent request
+
+# Priority levels
+PRIORITY_IMMEDIATE = "immediate"  # Dashboard, user interactions
+PRIORITY_SCHEDULED = "scheduled"  # Emails, background tasks
+
+# Error cooldown
+MAX_CONSECUTIVE_ERRORS = 3
+COOLDOWN_DURATION = 3600  # 1 hour
+
+# Off-peak hours
+OFF_PEAK_START = 2  # 2am BRT
+OFF_PEAK_END = 6    # 6am BRT
+```
+
+**API Rate Limiting (Future):**
+Planned implementation for general API endpoints:
 - 100 requests per minute per IP
 - 1000 requests per hour per IP
 - Burst allowance for legitimate traffic
+- JWT-based rate limiting per user
 
 ---
 
@@ -1442,6 +1507,56 @@ DEBUG=False
 
 ### Production Deployment
 
+**Railway Deployment (Current):**
+
+The Secu-Agent system is currently deployed on Railway cloud platform with the following configuration:
+
+**Deployment Configuration:**
+- **Platform**: Railway (cloud deployment platform)
+- **Environment**: Production
+- **Database**: SQLite (with PostgreSQL migration path)
+- **AI Integration**: ArliAI with rate limiting
+- **Static Files**: Served via FastAPI static file mounting
+
+**Railway-Specific Features:**
+- Automatic HTTPS/SSL certificates
+- Built-in monitoring and logging
+- Environment variable management
+- Automatic deployments from Git
+- Health check monitoring
+- Resource scaling capabilities
+
+**Environment Variables on Railway:**
+```bash
+# AI Configuration
+LLM_PROVIDER=openai
+LLM_API_KEY=${RAILWAY_PRIVATE_API_KEY}
+LLM_API_URL=https://api.arli.ai/v1
+LLM_MODEL=Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled
+
+# Database
+DATABASE_URL=sqlite:///vigil_agent.db
+
+# Application
+APP_NAME=Secu-Agent
+APP_VERSION=1.0.0
+DEBUG=False
+```
+
+**Railway AI Integration:**
+- Rate limiting implemented via Railway AI PR
+- Global semaphore for AI request management
+- Priority scheduling for optimal resource usage
+- Cooldown system for error recovery
+- Enhanced logging with BRT timestamps
+
+**Monitoring on Railway:**
+- Real-time health checks
+- API response time monitoring
+- Error rate tracking
+- Resource usage metrics
+- AI API usage monitoring
+
 **Option 1: Traditional VPS**
 
 1. **Server Setup**
@@ -1649,6 +1764,43 @@ logging.basicConfig(
 - Integration tests: ~70%
 - End-to-end tests: ~60%
 - Overall: ~75%
+
+**Test Suite Breakdown:**
+- **Database Tests**: 29 tests (100% passing)
+  - Database connection and initialization
+  - Lead CRUD operations
+  - Message CRUD operations
+  - Lead-Message relationships
+  - Edge cases and error handling
+  - Data integrity constraints
+  - Pagination and filtering
+
+- **AI Integration Tests**: 16 tests (100% passing)
+  - AI client initialization
+  - Real API interactions
+  - Lead engagement features
+  - Interest analysis
+  - Follow-up suggestions
+  - Error handling
+  - API discovery validation
+
+- **Rate Limiting Tests**: 18 tests (72% passing - 13/18)
+  - Global semaphore behavior
+  - Concurrent request serialization
+  - Priority scheduling system
+  - Off-peak hours detection
+  - Cooldown system activation
+  - Error handling and recovery
+  - Logging with BRT timestamps
+  - Integration scenarios
+
+- **E2E Tests**: 35 tests (71% passing - 25/35)
+  - Complete user flows
+  - System integration
+  - Data consistency validation
+
+**Total Tests**: 98 tests across 4 test suites
+**Overall Pass Rate**: ~85% (83/98 tests passing)
 
 **Target Coverage:**
 - Unit tests: 90%
@@ -1862,9 +2014,83 @@ jobs:
 
 **API Security:**
 - API key authentication (planned)
-- JWT tokens (planned)
+- JWT tokens (recommended for production - see below)
 - HTTPS enforcement
 - Request signing (planned)
+
+**JWT Authentication Requirements (Production):**
+
+For production deployment, implementing JWT (JSON Web Token) authentication is strongly recommended:
+
+**Required Components:**
+1. **User Authentication System**
+   - User registration and login endpoints
+   - Password hashing with bcrypt
+   - Session management
+   - User roles and permissions
+
+2. **JWT Token Generation**
+   - Token creation on successful authentication
+   - Token expiration configuration (recommended: 1 hour)
+   - Refresh token mechanism (recommended: 7 days)
+   - Secret key management via environment variables
+
+3. **Protected API Endpoints**
+   - JWT validation middleware
+   - Token refresh endpoint
+   - Protected route decorators
+   - Role-based access control
+
+4. **Session Management**
+   - Token blacklist for logout
+   - Session timeout handling
+   - Concurrent session limits
+   - Security event logging
+
+**Implementation Guidance:**
+```python
+# Required dependencies
+# pip install fastapi-jwt-auth python-jose[cryptography] passlib[bcrypt]
+
+# JWT Configuration
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+JWT_ALGORITHM = "HS256"
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 60
+JWT_REFRESH_TOKEN_EXPIRE_DAYS = 7
+
+# User Model Extension
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True)
+    email = Column(String(255), unique=True, nullable=False)
+    hashed_password = Column(String(255), nullable=False)
+    role = Column(String(50), default="user")
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+```
+
+**Security Best Practices:**
+- Store JWT_SECRET_KEY in Railway environment variables
+- Use strong, randomly generated secret keys
+- Implement token rotation for enhanced security
+- Add rate limiting per authenticated user
+- Log all authentication attempts
+- Implement account lockout after failed attempts
+
+**Production Deployment Steps:**
+1. Set JWT_SECRET_KEY in Railway environment variables
+2. Create user management database tables
+3. Implement authentication endpoints (/auth/login, /auth/register)
+4. Add JWT middleware to protected routes
+5. Update API documentation with authentication requirements
+6. Test authentication flow thoroughly
+7. Monitor authentication logs for suspicious activity
+
+**Current Status:**
+- JWT authentication is **recommended for production** but not currently implemented
+- System operates without authentication for development/testing
+- All endpoints are currently publicly accessible
+- JWT implementation should be prioritized before public production launch
 
 **Database Security:**
 - Parameterized queries
