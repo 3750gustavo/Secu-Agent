@@ -11,9 +11,12 @@ import requests
 import json
 import re
 import os
+import asyncio
+import inspect
 from typing import Dict, Any, List, Optional, Tuple, Callable
 import logging
 from datetime import datetime, timezone, timedelta
+from pytz import timezone as tz
 
 # Load configuration - try config file first, fall back to environment variables
 config = {}
@@ -23,6 +26,10 @@ try:
 except FileNotFoundError:
     # Config file not found, will use environment variables
     pass
+
+# Configure logging first
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Priority: Environment variables > Config file > Defaults
 API_KEY = os.getenv("AIRLI_API_KEY", config.get('API_KEY', ""))
@@ -38,15 +45,66 @@ LLM_MODEL = os.getenv("LLM_MODEL", config.get('LLM_MODEL', 'Gemma-4-31B-Claude-4
 if not API_KEY and not LLM_API_KEY:
     logger.warning("No API key configured. Set AIRLI_API_KEY or LLM_API_KEY environment variable, or create airli_config.json")
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Global semaphore for AI API rate limiting (1 concurrent request globally)
+_ai_semaphore = asyncio.Semaphore(1)
+
+# BRT timezone for logging
+BRT_TZ = tz('America/Sao_Paulo')
+
+def get_brt_timestamp() -> str:
+    """Get current timestamp in BRT timezone."""
+    return datetime.now(BRT_TZ).strftime('%Y-%m-%d %H:%M:%S %Z')
+
+def get_caller_context() -> str:
+    """Get the calling function context for logging."""
+    frame = inspect.currentframe()
+    if frame and frame.f_back:
+        caller_frame = frame.f_back
+        function_name = caller_frame.f_code.co_name
+        filename = caller_frame.f_code.co_filename
+        line_no = caller_frame.f_lineno
+        return f"{os.path.basename(filename)}:{function_name}:{line_no}"
+    return "unknown"
 
 
 
-def call_llm(system_prompt: str, user_message: str, history: Optional[List[Dict[str, str]]] = None) -> str:
+async def call_llm_with_limit(system_prompt: str, user_message: str, history: Optional[List[Dict[str, str]]] = None, reason: str = "unknown") -> str:
     """
-    LLM dispatcher that abstracts provider differences.
+    LLM dispatcher with global rate limiting using semaphore.
+    Only 1 AI API call can execute at a time globally.
+    Requests are queued and processed in order.
+    
+    Args:
+        system_prompt: System prompt for the LLM
+        user_message: User message to send
+        history: Conversation history (list of message dicts with 'role' and 'content')
+        reason: Business reason/context for this AI call (for logging)
+        
+    Returns:
+        LLM response text
+    """
+    caller_context = get_caller_context()
+    timestamp = get_brt_timestamp()
+    
+    logger.info(f"[{timestamp}] AI Request QUEUED - Reason: {reason} | Caller: {caller_context}")
+    
+    async with _ai_semaphore:
+        execution_timestamp = get_brt_timestamp()
+        logger.info(f"[{execution_timestamp}] AI Request STARTING - Reason: {reason} | Caller: {caller_context}")
+        try:
+            result = await _call_llm_internal(system_prompt, user_message, history)
+            completion_timestamp = get_brt_timestamp()
+            logger.info(f"[{completion_timestamp}] AI Request COMPLETED - Reason: {reason} | Caller: {caller_context}")
+            return result
+        except Exception as e:
+            error_timestamp = get_brt_timestamp()
+            logger.error(f"[{error_timestamp}] AI Request FAILED - Reason: {reason} | Caller: {caller_context} | Error: {str(e)}")
+            raise
+
+
+async def _call_llm_internal(system_prompt: str, user_message: str, history: Optional[List[Dict[str, str]]] = None) -> str:
+    """
+    Internal LLM dispatcher implementation.
     Supports OpenAI and Anthropic formats.
     
     Args:
@@ -72,7 +130,9 @@ def call_llm(system_prompt: str, user_message: str, history: Optional[List[Dict[
                 "messages": [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": user_message}],
                 "max_tokens": 1024
             }
-            response = requests.post(f"{LLM_API_URL}/v1/chat/completions", headers=headers, json=payload)
+            # Run blocking request in thread pool
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(None, lambda: requests.post(f"{LLM_API_URL}/v1/chat/completions", headers=headers, json=payload))
             response.raise_for_status()
             return response.json()['choices'][0]['message']['content']
         
@@ -89,7 +149,9 @@ def call_llm(system_prompt: str, user_message: str, history: Optional[List[Dict[
                 "messages": history + [{"role": "user", "content": user_message}],
                 "max_tokens": 1024
             }
-            response = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload)
+            # Run blocking request in thread pool
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(None, lambda: requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=payload))
             response.raise_for_status()
             return response.json()['content'][0]['text']
         
@@ -103,6 +165,27 @@ def call_llm(system_prompt: str, user_message: str, history: Optional[List[Dict[
     except (KeyError, IndexError) as e:
         logger.error(f"Failed to parse LLM response: {str(e)}")
         raise
+
+
+def call_llm(system_prompt: str, user_message: str, history: Optional[List[Dict[str, str]]] = None) -> str:
+    """
+    Synchronous wrapper for call_llm_with_limit for backward compatibility.
+    Note: This will block until the semaphore is acquired.
+    
+    Args:
+        system_prompt: System prompt for the LLM
+        user_message: User message to send
+        history: Conversation history (list of message dicts with 'role' and 'content')
+        
+    Returns:
+        LLM response text
+    """
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        return loop.run_until_complete(call_llm_with_limit(system_prompt, user_message, history))
+    finally:
+        loop.close()
 
 
 class AIClient:
@@ -135,9 +218,9 @@ class AIClient:
         }
         self.base_url = BASE_URL
     
-    def chat_completion(self, messages: List[Dict[str, str]], **kwargs) -> Dict[str, Any]:
+    async def chat_completion(self, messages: List[Dict[str, str]], **kwargs) -> Dict[str, Any]:
         """
-        Send chat completion request to AI API.
+        Send chat completion request to AI API with global rate limiting.
         
         Args:
             messages: List of message dictionaries with 'role' and 'content'
@@ -162,9 +245,9 @@ class AIClient:
             else:
                 history.append(msg)
         
-        # Use LLM dispatcher if available
+        # Use LLM dispatcher with rate limiting
         try:
-            content = call_llm(system_prompt, user_message, history)
+            content = await call_llm_with_limit(system_prompt, user_message, history)
             # Return in OpenAI-compatible format
             return {
                 "choices": [{
@@ -176,22 +259,24 @@ class AIClient:
             }
         except Exception as e:
             logger.error(f"LLM dispatcher failed, falling back to direct API: {str(e)}")
-            # Fallback to direct API call
-            url = f"{self.base_url}/v1/chat/completions"
-            
-            payload = {
-                "model": self.model,
-                "messages": messages,
-                **kwargs
-            }
-            
-            try:
-                response = requests.post(url, headers=self.headers, json=payload)
-                response.raise_for_status()
-                return response.json()
-            except requests.exceptions.RequestException as e:
-                logger.error(f"AI API request failed: {str(e)}")
-                raise
+            # Fallback to direct API call with semaphore
+            async with _ai_semaphore:
+                url = f"{self.base_url}/v1/chat/completions"
+                
+                payload = {
+                    "model": self.model,
+                    "messages": messages,
+                    **kwargs
+                }
+                
+                try:
+                    loop = asyncio.get_event_loop()
+                    response = await loop.run_in_executor(None, lambda: requests.post(url, headers=self.headers, json=payload))
+                    response.raise_for_status()
+                    return response.json()
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"AI API request failed: {str(e)}")
+                    raise
     
     def get_available_models(self) -> List[str]:
         """
