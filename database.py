@@ -10,8 +10,16 @@ from typing import Optional, List
 import os
 
 # Database Configuration
-DATABASE_URL = "sqlite:///vigil_agent.db"
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Support both SQLite (local) and PostgreSQL (Railway production)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///vigil_agent.db")
+
+# Create engine with appropriate configuration based on database type
+if DATABASE_URL.startswith("postgres"):
+    # PostgreSQL configuration for Railway
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=5, max_overflow=10)
+else:
+    # SQLite configuration for local development
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 
 # Enable foreign key constraints for SQLite
 @event.listens_for(engine, "connect")
