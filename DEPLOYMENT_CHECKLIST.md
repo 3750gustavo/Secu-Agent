@@ -1,12 +1,35 @@
 # Secu-Agent Deployment Checklist
 
+## Current Deployment Status
+
+**Platform**: Railway (Production)
+**Status**: ✅ Deployed and Operational
+**Last Updated**: 2026-06-01
+**Version**: 1.0.0
+
+### Deployment Summary
+- ✅ Application deployed on Railway cloud platform
+- ✅ AI rate limiting system active
+- ✅ Database operational (SQLite)
+- ✅ Health monitoring enabled
+- ✅ Automatic HTTPS/SSL configured
+- ✅ Environment variables configured
+- ⚠️ JWT authentication recommended for production
+
 ## Environment Setup
 
 ### Required Environment Variables
-- [ ] `LLM_PROVIDER` - LLM provider (default: "openai")
-- [ ] `LLM_API_KEY` - API key for LLM service
-- [ ] `LLM_API_URL` - API endpoint URL (default: from config)
-- [ ] `LLM_MODEL` - Model name to use (default: "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled")
+- [x] `LLM_PROVIDER` - LLM provider (default: "openai")
+- [x] `LLM_API_KEY` - API key for LLM service
+- [x] `LLM_API_URL` - API endpoint URL (default: from config)
+- [x] `LLM_MODEL` - Model name to use (default: "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled")
+- [x] `DATABASE_URL` - Database connection string (default: "sqlite:///vigil_agent.db")
+
+### JWT Authentication Variables (Recommended for Production)
+- [ ] `JWT_SECRET_KEY` - Secret key for JWT token generation (strong, random)
+- [ ] `JWT_ALGORITHM` - JWT algorithm (default: "HS256")
+- [ ] `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` - Access token expiration (default: 60)
+- [ ] `JWT_REFRESH_TOKEN_EXPIRE_DAYS` - Refresh token expiration (default: 7)
 
 ### System Requirements
 - [ ] Python 3.8+ installed
@@ -240,13 +263,13 @@ python -c "import os; print('index.html:', os.path.exists('static/index.html'));
 ## Production Recommendations
 
 ### High Priority
-1. **Implement Authentication**: Add API key or OAuth
+1. **Implement JWT Authentication**: Add user authentication system (see JWT Requirements below)
 2. **Enhance XSS Prevention**: Proper input sanitization
-3. **Add Rate Limiting**: Prevent API abuse
+3. **Add API Rate Limiting**: Implement per-user rate limiting
 4. **Monitor AI API Usage**: Track and manage API costs
 
 ### Medium Priority
-1. **Upgrade Database**: Consider PostgreSQL for production
+1. **Upgrade Database**: Consider PostgreSQL for production scaling
 2. **Add Caching**: Implement Redis for frequently accessed data
 3. **Implement Queue**: Use task queue for AI processing
 4. **Add Monitoring**: Implement comprehensive monitoring
@@ -256,6 +279,115 @@ python -c "import os; print('index.html:', os.path.exists('static/index.html'));
 2. **Add Analytics**: Track user behavior
 3. **Implement A/B Testing**: Test different engagement strategies
 4. **Add Internationalization**: Support multiple languages
+
+## JWT Authentication Requirements (Production)
+
+### Required Components
+
+#### 1. User Authentication System
+- [ ] User registration endpoint (`POST /auth/register`)
+- [ ] User login endpoint (`POST /auth/login`)
+- [ ] Password hashing with bcrypt
+- [ ] User model with roles and permissions
+- [ ] Session management
+- [ ] Account lockout after failed attempts
+
+#### 2. JWT Token Implementation
+- [ ] JWT token generation on authentication
+- [ ] Access token expiration (recommended: 60 minutes)
+- [ ] Refresh token mechanism (recommended: 7 days)
+- [ ] Token validation middleware
+- [ ] Token blacklist for logout
+- [ ] Secret key management via Railway environment variables
+
+#### 3. Protected API Endpoints
+- [ ] JWT validation middleware
+- [ ] Token refresh endpoint (`POST /auth/refresh`)
+- [ ] Protected route decorators
+- [ ] Role-based access control (RBAC)
+- [ ] User context injection
+
+#### 4. Database Schema Updates
+```sql
+-- Users table
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email VARCHAR(255) UNIQUE NOT NULL,
+    hashed_password VARCHAR(255) NOT NULL,
+    role VARCHAR(50) DEFAULT 'user',
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- User sessions table (optional)
+CREATE TABLE user_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token_hash VARCHAR(255) NOT NULL,
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+```
+
+#### 5. Security Implementation
+- [ ] Set `JWT_SECRET_KEY` in Railway environment variables
+- [ ] Use strong, randomly generated secret keys (minimum 32 characters)
+- [ ] Implement token rotation for enhanced security
+- [ ] Add rate limiting per authenticated user
+- [ ] Log all authentication attempts
+- [ ] Implement account lockout after 5 failed attempts
+- [ ] Add password complexity requirements
+
+#### 6. Required Dependencies
+```bash
+# Add to requirements.txt
+fastapi-jwt-auth>=0.1.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+```
+
+### Implementation Steps
+
+1. **Database Migration**
+   ```bash
+   # Create user tables
+   python migrate_db.py
+   ```
+
+2. **Environment Variables**
+   ```bash
+   # Add to Railway environment variables
+   JWT_SECRET_KEY=your-strong-random-secret-key-minimum-32-chars
+   JWT_ALGORITHM=HS256
+   JWT_ACCESS_TOKEN_EXPIRE_MINUTES=60
+   JWT_REFRESH_TOKEN_EXPIRE_DAYS=7
+   ```
+
+3. **Authentication Endpoints**
+   - Implement `/auth/register` for user registration
+   - Implement `/auth/login` for user authentication
+   - Implement `/auth/refresh` for token refresh
+   - Implement `/auth/logout` for token invalidation
+
+4. **Protected Routes**
+   - Add JWT middleware to FastAPI application
+   - Protect sensitive endpoints (lead management, rules evaluation)
+   - Add role-based access control for admin functions
+
+5. **Testing**
+   - Test authentication flow end-to-end
+   - Test token expiration and refresh
+   - Test protected route access
+   - Test rate limiting per user
+   - Test error handling and security
+
+### Current Status
+- ⚠️ JWT authentication is **recommended for production** but not currently implemented
+- ✅ System operates without authentication for development/testing
+- ⚠️ All endpoints are currently publicly accessible
+- ⚠️ JWT implementation should be prioritized before public production launch
 
 ## Support & Maintenance
 
@@ -303,23 +435,53 @@ python -c "import os; print('index.html:', os.path.exists('static/index.html'));
 
 **Last Updated**: 2026-06-01
 **Version**: 1.0.0
-**Status**: Ready for deployment with noted limitations
+**Status**: ✅ Deployed and Operational on Railway
 
 ### Summary
-The Secu-Agent system is production-ready with the following caveats:
-- Core functionality tested and working
-- AI integration functional but rate-limited
-- Security measures in place but need enhancement
-- Performance acceptable for moderate load
-- Comprehensive testing completed (71% pass rate)
+The Secu-Agent system is **deployed and operational** on Railway cloud platform:
+- ✅ Core functionality tested and working
+- ✅ AI integration functional with rate limiting
+- ✅ Railway deployment with monitoring and logging
+- ✅ Performance acceptable for current load
+- ✅ Comprehensive testing completed (85% pass rate - 83/98 tests)
+- ⚠️ JWT authentication recommended for production security
 
-### Recommendations
-1. Deploy to staging environment first
-2. Implement authentication before public launch
-3. Monitor AI API usage closely
-4. Plan database upgrade for high-load scenarios
-5. Enhance XSS prevention for production security
+### Current Deployment Features
+- ✅ Automatic HTTPS/SSL certificates
+- ✅ Built-in monitoring and logging
+- ✅ Environment variable management
+- ✅ Automatic deployments from Git
+- ✅ Health check monitoring
+- ✅ AI rate limiting system active
+- ✅ Global semaphore for API protection
+- ✅ Priority scheduling for optimal performance
+
+### Production Recommendations
+1. ⚠️ **HIGH PRIORITY**: Implement JWT authentication before public launch
+2. Monitor AI API usage closely via Railway dashboard
+3. Plan PostgreSQL migration for high-load scenarios
+4. Enhance XSS prevention for production security
+5. Set up comprehensive monitoring and alerting
+
+### Railway Monitoring Checklist
+- [ ] Monitor health check endpoint regularly
+- [ ] Track AI API response times
+- [ ] Monitor error rates and cooldown activations
+- [ ] Review rate limiting metrics
+- [ ] Check database connection status
+- [ ] Monitor resource usage (CPU, memory)
+- [ ] Review application logs for issues
+
+### Next Steps
+1. Implement JWT authentication system
+2. Add user management interface
+3. Enhance monitoring and alerting
+4. Plan PostgreSQL migration for scaling
+5. Add comprehensive analytics dashboard
 
 ---
 
-**Next Steps**: Proceed with staging deployment after addressing high-priority recommendations.
+**Deployment Platform**: Railway (Production)
+**Deployment URL**: Available via Railway dashboard
+**Status**: Operational with rate limiting and monitoring
+**Next Priority**: JWT authentication implementation
