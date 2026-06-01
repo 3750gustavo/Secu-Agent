@@ -442,7 +442,7 @@ Desenvolvedor especializado em IA e sistemas de gestão, focado em criar soluç�
 
 Para dúvidas, sugestões ou problemas:
 
-- 📧 Email: [seu-email@exemplo.com]
+- 📧 Email: [gustavo3750sobre2@gmail.com]
 - 🐛 Issues: [GitHub Issues](https://github.com/seu-usuario/Secu-Agent/issues)
 - 📖 Documentação: [TECHNICAL_DOCUMENTATION.md](TECHNICAL_DOCUMENTATION.md)
 
