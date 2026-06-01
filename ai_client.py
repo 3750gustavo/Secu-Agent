@@ -9,9 +9,9 @@ import requests
 import json
 import re
 import os
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Callable
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 # Load configuration
 with open('airli_config.json', 'r') as f:
@@ -376,14 +376,16 @@ class Agent:
         'lost': ['new']  # Can restart the cycle
     }
     
-    def __init__(self, ai_client: Optional[AIClient] = None):
+    def __init__(self, ai_client: Optional[AIClient] = None, engagement_rules: Optional[EngagementRules] = None):
         """
-        Initialize Agent with AI client.
+        Initialize Agent with AI client and engagement rules engine.
         
         Args:
             ai_client: AIClient instance. If None, creates default instance.
+            engagement_rules: EngagementRules instance. If None, creates default instance.
         """
         self.ai_client = ai_client or get_ai_client()
+        self.engagement_rules = engagement_rules or EngagementRules()
         self.logger = logging.getLogger(__name__)
     
     def parse_tool_calls(self, ai_response: str) -> List[Dict[str, Any]]:
@@ -850,6 +852,74 @@ Do NOT include tool calls in this message."""
             self.logger.error(f"Failed to process lead {lead_id}: {str(e)}")
             return {"success": False, "error": str(e)}
     
+    def process_lead_with_rules(self, lead_id: int, db_session) -> Dict[str, Any]:
+        """
+        Process lead with automatic engagement rules evaluation.
+        This is the enhanced version of process_lead that includes rule evaluation.
+        
+        Args:
+            lead_id: ID of the lead to process
+            db_session: Database session
+            
+        Returns:
+            Processing result with actions taken and rule evaluations
+        """
+        try:
+            from database import LeadOperations
+            
+            # First, process lead normally
+            basic_result = self.process_lead(lead_id, db_session)
+            
+            if not basic_result.get("success"):
+                return basic_result
+            
+            # Get lead information for rule evaluation
+            lead = LeadOperations.get_lead(db_session, lead_id)
+            if not lead:
+                return {"success": False, "error": "Lead not found"}
+            
+            lead_dict = {
+                'id': lead.id,
+                'name': lead.name,
+                'email': lead.email,
+                'company': lead.company,
+                'job_title': lead.job_title,
+                'status': lead.status,
+                'source': lead.source
+            }
+            
+            # Calculate engagement score
+            engagement_score = self.engagement_rules.get_engagement_score(lead_dict, db_session)
+            
+            # Build context for rule evaluation
+            context = {
+                'engagement_score': engagement_score,
+                'event_date': self.engagement_rules.event_date,
+                'sessions_attended': [],
+                'last_email_opened': None,
+                'last_contact_date': lead.updated_at
+            }
+            
+            # Evaluate and execute engagement rules
+            rule_results = self.engagement_rules.evaluate_rules_for_lead(
+                lead_dict, context, self, db_session
+            )
+            
+            # Combine results
+            return {
+                "success": True,
+                "basic_processing": basic_result,
+                "engagement_score": engagement_score,
+                "rules_evaluated": len(self.engagement_rules.rules),
+                "rules_matched": len(rule_results),
+                "rule_results": rule_results,
+                "total_actions": basic_result.get("tool_calls_executed", 0) + len(rule_results)
+            }
+        
+        except Exception as e:
+            self.logger.error(f"Failed to process lead {lead_id} with rules: {str(e)}")
+            return {"success": False, "error": str(e)}
+    
     def enrich_lead_data(self, lead_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Auto-enrich lead data using Clearbit API with fallback to mock data.
@@ -968,3 +1038,628 @@ Do NOT include tool calls in this message."""
         enriched.setdefault('logo', '')
         
         return enriched
+
+
+class EngagementRule:
+    """
+    Represents a single engagement rule with conditions, actions, and metadata.
+    """
+    
+    def __init__(self, name: str, priority: int, conditions: List[Callable],
+                 actions: List[Callable], cooldown_hours: int = 24,
+                 rule_type: str = "time_based"):
+        """
+        Initialize an engagement rule.
+        
+        Args:
+            name: Unique rule name
+            priority: Higher priority rules execute first (1-10)
+            conditions: List of callable functions that return True/False
+            actions: List of callable functions to execute when conditions met
+            cooldown_hours: Minimum time between executions
+            rule_type: Type of rule (time_based, behavior_based, hybrid)
+        """
+        self.name = name
+        self.priority = priority
+        self.conditions = conditions
+        self.actions = actions
+        self.cooldown_hours = cooldown_hours
+        self.rule_type = rule_type
+        self.last_executed = None
+    
+    def evaluate(self, lead: Dict[str, Any], context: Dict[str, Any]) -> bool:
+        """
+        Evaluate if rule conditions are met.
+        
+        Args:
+            lead: Lead information dictionary
+            context: Additional context (event date, engagement data, etc.)
+            
+        Returns:
+            True if all conditions are met, False otherwise
+        """
+        # Check cooldown period
+        if self.last_executed:
+            hours_since = (datetime.now(timezone.utc) - self.last_executed).total_seconds() / 3600
+            if hours_since < self.cooldown_hours:
+                return False
+        
+        # Evaluate all conditions
+        for condition in self.conditions:
+            try:
+                if not condition(lead, context):
+                    return False
+            except Exception as e:
+                logger.error(f"Error evaluating condition for rule {self.name}: {str(e)}")
+                return False
+        
+        return True
+    
+    def execute(self, lead: Dict[str, Any], context: Dict[str, Any],
+                agent: 'Agent', db_session) -> List[Dict[str, Any]]:
+        """
+        Execute rule actions.
+        
+        Args:
+            lead: Lead information dictionary
+            context: Additional context
+            agent: Agent instance for executing actions
+            db_session: Database session
+            
+        Returns:
+            List of execution results
+        """
+        results = []
+        
+        for action in self.actions:
+            try:
+                result = action(lead, context, agent, db_session)
+                results.append(result)
+                logger.info(f"Executed action for rule {self.name}: {result}")
+            except Exception as e:
+                logger.error(f"Error executing action for rule {self.name}: {str(e)}")
+                results.append({"success": False, "error": str(e)})
+        
+        self.last_executed = datetime.now(timezone.utc)
+        return results
+
+
+class EngagementRules:
+    """
+    Engagement rules engine for automated lead management.
+    Manages pre-event and post-event engagement rules with time-based and behavior-based triggers.
+    """
+    
+    def __init__(self, event_date: Optional[datetime] = None):
+        """
+        Initialize engagement rules engine.
+        
+        Args:
+            event_date: Date of the event (defaults to 14 days from now)
+        """
+        self.event_date = event_date or (datetime.now(timezone.utc) + timedelta(days=14))
+        self.rules: List[EngagementRule] = []
+        self.logger = logging.getLogger(__name__)
+        
+        # Initialize all rules
+        self._initialize_pre_event_rules()
+        self._initialize_post_event_rules()
+        self._initialize_behavior_based_rules()
+    
+    def _initialize_pre_event_rules(self):
+        """Initialize pre-event engagement rules."""
+        
+        # Rule 1: New lead → immediate welcome message (within 1 hour)
+        def condition_new_lead(lead, context):
+            return lead.get('status') == 'new'
+        
+        def action_send_welcome(lead, context, agent, db_session):
+            welcome_message = agent.generate_welcome_message(lead)
+            from database import LeadOperations
+            LeadOperations.update_lead_status(db_session, lead['id'], "contacted")
+            agent.update_context(lead['id'], welcome_message, "", db_session)
+            return {"success": True, "action": "welcome_sent", "message": welcome_message}
+        
+        self.rules.append(EngagementRule(
+            name="new_lead_welcome",
+            priority=10,
+            conditions=[condition_new_lead],
+            actions=[action_send_welcome],
+            cooldown_hours=1,
+            rule_type="time_based"
+        ))
+        
+        # Rule 2: Unconfirmed lead → reminder 7 days before event
+        def condition_reminder_7_days(lead, context):
+            days_until = (self.event_date - datetime.now(timezone.utc)).days
+            return (lead.get('status') in ['contacted', 'unconfirmed'] and
+                    days_until == 7 and
+                    self._is_business_hours())
+        
+        def action_reminder_7_days(lead, context, agent, db_session):
+            message = agent.generate_contextual_message(
+                lead, [], "reminder_7_days_before_event"
+            )
+            agent.update_context(lead['id'], message, "", db_session)
+            return {"success": True, "action": "reminder_7_days", "message": message}
+        
+        self.rules.append(EngagementRule(
+            name="reminder_7_days_before",
+            priority=8,
+            conditions=[condition_reminder_7_days],
+            actions=[action_reminder_7_days],
+            cooldown_hours=168,  # 7 days
+            rule_type="time_based"
+        ))
+        
+        # Rule 3: Unconfirmed lead → reminder 3 days before event
+        def condition_reminder_3_days(lead, context):
+            days_until = (self.event_date - datetime.now(timezone.utc)).days
+            return (lead.get('status') in ['contacted', 'unconfirmed'] and
+                    days_until == 3 and
+                    self._is_business_hours())
+        
+        def action_reminder_3_days(lead, context, agent, db_session):
+            message = agent.generate_contextual_message(
+                lead, [], "reminder_3_days_before_event"
+            )
+            agent.update_context(lead['id'], message, "", db_session)
+            return {"success": True, "action": "reminder_3_days", "message": message}
+        
+        self.rules.append(EngagementRule(
+            name="reminder_3_days_before",
+            priority=8,
+            conditions=[condition_reminder_3_days],
+            actions=[action_reminder_3_days],
+            cooldown_hours=72,  # 3 days
+            rule_type="time_based"
+        ))
+        
+        # Rule 4: Unconfirmed lead → final reminder 1 day before event
+        def condition_reminder_1_day(lead, context):
+            days_until = (self.event_date - datetime.now(timezone.utc)).days
+            return (lead.get('status') in ['contacted', 'unconfirmed'] and
+                    days_until == 1 and
+                    self._is_business_hours())
+        
+        def action_reminder_1_day(lead, context, agent, db_session):
+            message = agent.generate_contextual_message(
+                lead, [], "final_reminder_before_event"
+            )
+            agent.update_context(lead['id'], message, "", db_session)
+            return {"success": True, "action": "reminder_1_day", "message": message}
+        
+        self.rules.append(EngagementRule(
+            name="reminder_1_day_before",
+            priority=9,
+            conditions=[condition_reminder_1_day],
+            actions=[action_reminder_1_day],
+            cooldown_hours=24,
+            rule_type="time_based"
+        ))
+        
+        # Rule 5: Engaged lead → personalized content 5 days before event
+        def condition_personalized_content(lead, context):
+            days_until = (self.event_date - datetime.now(timezone.utc)).days
+            return (lead.get('status') == 'engaged' and
+                    days_until == 5 and
+                    self._is_business_hours())
+        
+        def action_personalized_content(lead, context, agent, db_session):
+            message = agent.generate_contextual_message(
+                lead, [], "personalized_content_before_event"
+            )
+            agent.update_context(lead['id'], message, "", db_session)
+            return {"success": True, "action": "personalized_content", "message": message}
+        
+        self.rules.append(EngagementRule(
+            name="personalized_content_5_days",
+            priority=7,
+            conditions=[condition_personalized_content],
+            actions=[action_personalized_content],
+            cooldown_hours=120,  # 5 days
+            rule_type="time_based"
+        ))
+        
+        # Rule 6: Confirmed lead → confirmation email + agenda
+        def condition_confirmed_lead(lead, context):
+            return lead.get('status') == 'meeting_scheduled'
+        
+        def action_confirmation_email(lead, context, agent, db_session):
+            message = agent.generate_contextual_message(
+                lead, [], "event_confirmation_with_agenda"
+            )
+            agent.update_context(lead['id'], message, "", db_session)
+            return {"success": True, "action": "confirmation_email", "message": message}
+        
+        self.rules.append(EngagementRule(
+            name="confirmed_lead_confirmation",
+            priority=9,
+            conditions=[condition_confirmed_lead],
+            actions=[action_confirmation_email],
+            cooldown_hours=48,
+            rule_type="time_based"
+        ))
+    
+    def _initialize_post_event_rules(self):
+        """Initialize post-event follow-up rules."""
+        
+        # Rule 7: Attended lead → thank you message within 24 hours
+        def condition_attended_thank_you(lead, context):
+            days_since = (datetime.now(timezone.utc) - self.event_date).days
+            return (lead.get('status') == 'attended' and
+                    days_since == 0 and
+                    self._is_business_hours())
+        
+        def action_thank_you(lead, context, agent, db_session):
+            message = agent.generate_contextual_message(
+                lead, [], "thank_you_for_attending"
+            )
+            agent.update_context(lead['id'], message, "", db_session)
+            from database import LeadOperations
+            LeadOperations.update_lead_status(db_session, lead['id'], "engaged")
+            return {"success": True, "action": "thank_you_sent", "message": message}
+        
+        self.rules.append(EngagementRule(
+            name="attended_thank_you",
+            priority=10,
+            conditions=[condition_attended_thank_you],
+            actions=[action_thank_you],
+            cooldown_hours=24,
+            rule_type="time_based"
+        ))
+        
+        # Rule 8: Attended lead → meeting request 3 days after event
+        def condition_meeting_request(lead, context):
+            days_since = (datetime.now(timezone.utc) - self.event_date).days
+            return (lead.get('status') == 'engaged' and
+                    days_since == 3 and
+                    self._is_business_hours())
+        
+        def action_meeting_request(lead, context, agent, db_session):
+            message = agent.generate_contextual_message(
+                lead, [], "follow_up_meeting_request"
+            )
+            agent.update_context(lead['id'], message, "", db_session)
+            return {"success": True, "action": "meeting_request", "message": message}
+        
+        self.rules.append(EngagementRule(
+            name="attended_meeting_request",
+            priority=8,
+            conditions=[condition_meeting_request],
+            actions=[action_meeting_request],
+            cooldown_hours=72,
+            rule_type="time_based"
+        ))
+        
+        # Rule 9: No-show lead → reschedule invitation 2 days after event
+        def condition_no_show_reschedule(lead, context):
+            days_since = (datetime.now(timezone.utc) - self.event_date).days
+            return (lead.get('status') == 'meeting_scheduled' and
+                    days_since == 2 and
+                    self._is_business_hours())
+        
+        def action_reschedule_invitation(lead, context, agent, db_session):
+            message = agent.generate_contextual_message(
+                lead, [], "reschedule_invitation"
+            )
+            agent.update_context(lead['id'], message, "", db_session)
+            from database import LeadOperations
+            LeadOperations.update_lead_status(db_session, lead['id'], "contacted")
+            return {"success": True, "action": "reschedule_invitation", "message": message}
+        
+        self.rules.append(EngagementRule(
+            name="no_show_reschedule",
+            priority=9,
+            conditions=[condition_no_show_reschedule],
+            actions=[action_reschedule_invitation],
+            cooldown_hours=48,
+            rule_type="time_based"
+        ))
+        
+        # Rule 10: Engaged lead → personalized content based on sessions attended
+        def condition_session_based_content(lead, context):
+            days_since = (datetime.now(timezone.utc) - self.event_date).days
+            return (lead.get('status') == 'engaged' and
+                    days_since >= 1 and
+                    days_since <= 7 and
+                    context.get('sessions_attended'))
+        
+        def action_session_content(lead, context, agent, db_session):
+            sessions = context.get('sessions_attended', [])
+            message = agent.generate_contextual_message(
+                lead, [], f"session_followup_{sessions[0] if sessions else 'general'}"
+            )
+            agent.update_context(lead['id'], message, "", db_session)
+            return {"success": True, "action": "session_based_content", "message": message}
+        
+        self.rules.append(EngagementRule(
+            name="session_based_content",
+            priority=7,
+            conditions=[condition_session_based_content],
+            actions=[action_session_content],
+            cooldown_hours=168,  # 7 days
+            rule_type="time_based"
+        ))
+    
+    def _initialize_behavior_based_rules(self):
+        """Initialize behavior-based engagement rules."""
+        
+        # Rule: High engagement → escalate priority
+        def condition_high_engagement(lead, context):
+            engagement_score = context.get('engagement_score', 0)
+            return engagement_score >= 8 and lead.get('status') in ['contacted', 'engaged']
+        
+        def action_escalate_priority(lead, context, agent, db_session):
+            from database import LeadOperations
+            # Add priority note or update status
+            LeadOperations.update_lead_status(db_session, lead['id'], "engaged")
+            return {"success": True, "action": "priority_escalated", "new_status": "engaged"}
+        
+        self.rules.append(EngagementRule(
+            name="high_engagement_escalate",
+            priority=6,
+            conditions=[condition_high_engagement],
+            actions=[action_escalate_priority],
+            cooldown_hours=48,
+            rule_type="behavior_based"
+        ))
+        
+        # Rule: No response → de-priority
+        def condition_no_response(lead, context):
+            last_contact = context.get('last_contact_date')
+            if not last_contact:
+                return False
+            days_since_contact = (datetime.now(timezone.utc) - last_contact).days
+            return days_since_contact >= 14 and lead.get('status') == 'contacted'
+        
+        def action_de_priority(lead, context, agent, db_session):
+            from database import LeadOperations
+            LeadOperations.update_lead_status(db_session, lead['id'], "lost")
+            return {"success": True, "action": "de_prioritized", "new_status": "lost"}
+        
+        self.rules.append(EngagementRule(
+            name="no_response_de_prioritize",
+            priority=5,
+            conditions=[condition_no_response],
+            actions=[action_de_priority],
+            cooldown_hours=168,  # 7 days
+            rule_type="behavior_based"
+        ))
+        
+        # Rule: Email opened → follow up within 24 hours
+        def condition_email_opened(lead, context):
+            return (context.get('last_email_opened') and
+                    lead.get('status') in ['contacted', 'engaged'] and
+                    self._is_business_hours())
+        
+        def action_email_opened_followup(lead, context, agent, db_session):
+            message = agent.generate_contextual_message(
+                lead, [], "email_opened_followup"
+            )
+            agent.update_context(lead['id'], message, "", db_session)
+            return {"success": True, "action": "email_opened_followup", "message": message}
+        
+        self.rules.append(EngagementRule(
+            name="email_opened_followup",
+            priority=7,
+            conditions=[condition_email_opened],
+            actions=[action_email_opened_followup],
+            cooldown_hours=24,
+            rule_type="behavior_based"
+        ))
+    
+    def _is_business_hours(self) -> bool:
+        """
+        Check if current time is within business hours (9 AM - 6 PM, Monday-Friday).
+        
+        Returns:
+            True if within business hours, False otherwise
+        """
+        now = datetime.now(timezone.utc)
+        
+        # Check if weekday (Monday=0, Friday=4)
+        if now.weekday() > 4:  # Saturday or Sunday
+            return False
+        
+        # Check if between 9 AM and 6 PM UTC
+        hour = now.hour
+        return 9 <= hour < 18
+    
+    def evaluate_rules_for_lead(self, lead: Dict[str, Any],
+                                context: Dict[str, Any],
+                                agent: 'Agent',
+                                db_session) -> List[Dict[str, Any]]:
+        """
+        Evaluate and execute applicable rules for a lead.
+        
+        Args:
+            lead: Lead information dictionary
+            context: Additional context (engagement data, behavior metrics, etc.)
+            agent: Agent instance for executing actions
+            db_session: Database session
+            
+        Returns:
+            List of execution results from matched rules
+        """
+        # Sort rules by priority (higher priority first)
+        sorted_rules = sorted(self.rules, key=lambda r: r.priority, reverse=True)
+        
+        results = []
+        
+        for rule in sorted_rules:
+            try:
+                if rule.evaluate(lead, context):
+                    self.logger.info(f"Rule {rule.name} matched for lead {lead.get('id')}")
+                    execution_results = rule.execute(lead, context, agent, db_session)
+                    results.append({
+                        "rule_name": rule.name,
+                        "priority": rule.priority,
+                        "rule_type": rule.rule_type,
+                        "results": execution_results
+                    })
+            except Exception as e:
+                self.logger.error(f"Error evaluating rule {rule.name}: {str(e)}")
+                results.append({
+                    "rule_name": rule.name,
+                    "error": str(e)
+                })
+        
+        return results
+    
+    def get_all_rules(self) -> List[Dict[str, Any]]:
+        """
+        Get information about all registered rules.
+        
+        Returns:
+            List of rule information dictionaries
+        """
+        return [
+            {
+                "name": rule.name,
+                "priority": rule.priority,
+                "rule_type": rule.rule_type,
+                "cooldown_hours": rule.cooldown_hours,
+                "last_executed": rule.last_executed.isoformat() if rule.last_executed else None
+            }
+            for rule in self.rules
+        ]
+    
+    def get_upcoming_actions(self, leads: List[Dict[str, Any]],
+                            context: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Get upcoming scheduled actions based on time-based rules.
+        
+        Args:
+            leads: List of lead dictionaries
+            context: Additional context
+            
+        Returns:
+            List of upcoming action predictions
+        """
+        upcoming = []
+        
+        for lead in leads:
+            for rule in self.rules:
+                if rule.rule_type == "time_based":
+                    # Predict when rule will trigger
+                    prediction = self._predict_rule_trigger(rule, lead, context)
+                    if prediction:
+                        upcoming.append({
+                            "lead_id": lead.get('id'),
+                            "lead_name": lead.get('name'),
+                            "rule_name": rule.name,
+                            "predicted_trigger": prediction,
+                            "priority": rule.priority
+                        })
+        
+        # Sort by predicted trigger time
+        upcoming.sort(key=lambda x: x['predicted_trigger'])
+        return upcoming
+    
+    def _predict_rule_trigger(self, rule: EngagementRule,
+                             lead: Dict[str, Any],
+                             context: Dict[str, Any]) -> Optional[str]:
+        """
+        Predict when a time-based rule will trigger.
+        
+        Args:
+            rule: Engagement rule to predict
+            lead: Lead information
+            context: Additional context
+            
+        Returns:
+            ISO format datetime string or None if not predictable
+        """
+        try:
+            # Check if conditions are already met (excluding time)
+            now = datetime.now(timezone.utc)
+            days_until = (self.event_date - now).days
+            days_since = (now - self.event_date).days
+            
+            # Mock prediction logic based on rule names
+            if "7_days_before" in rule.name and days_until > 7:
+                trigger_date = self.event_date - timedelta(days=7)
+                return trigger_date.isoformat()
+            elif "3_days_before" in rule.name and days_until > 3:
+                trigger_date = self.event_date - timedelta(days=3)
+                return trigger_date.isoformat()
+            elif "1_day_before" in rule.name and days_until > 1:
+                trigger_date = self.event_date - timedelta(days=1)
+                return trigger_date.isoformat()
+            elif "thank_you" in rule.name and days_since < 0:
+                trigger_date = self.event_date + timedelta(hours=12)
+                return trigger_date.isoformat()
+            elif "meeting_request" in rule.name and days_since < 3:
+                trigger_date = self.event_date + timedelta(days=3)
+                return trigger_date.isoformat()
+            
+            return None
+        except Exception as e:
+            self.logger.error(f"Error predicting rule trigger: {str(e)}")
+            return None
+    
+    def set_event_date(self, event_date: datetime):
+        """
+        Update the event date for time-based rules.
+        
+        Args:
+            event_date: New event date
+        """
+        self.event_date = event_date
+        self.logger.info(f"Event date updated to {event_date.isoformat()}")
+    
+    def get_engagement_score(self, lead: Dict[str, Any],
+                            db_session) -> int:
+        """
+        Calculate engagement score for a lead based on behavior.
+        
+        Args:
+            lead: Lead information dictionary
+            db_session: Database session
+            
+        Returns:
+            Engagement score (0-10)
+        """
+        try:
+            from database import MessageOperations
+            
+            messages = MessageOperations.get_messages_by_lead(db_session, lead['id'])
+            
+            if not messages:
+                return 0
+            
+            score = 0
+            
+            # Base score for having messages
+            score += min(len(messages) * 0.5, 3)  # Max 3 points for message count
+            
+            # Bonus for recent activity
+            if messages:
+                last_message = max(messages, key=lambda m: m.timestamp)
+                days_since = (datetime.now(timezone.utc) - last_message.timestamp).days
+                if days_since <= 7:
+                    score += 2
+                elif days_since <= 14:
+                    score += 1
+            
+            # Bonus for inbound responses
+            inbound_count = sum(1 for msg in messages if msg.direction == "inbound")
+            score += min(inbound_count * 1.5, 3)  # Max 3 points for responses
+            
+            # Bonus for status progression
+            status_scores = {
+                'new': 0,
+                'contacted': 1,
+                'engaged': 2,
+                'meeting_scheduled': 3,
+                'attended': 4,
+                'converted': 5
+            }
+            score += status_scores.get(lead.get('status', 'new'), 0)
+            
+            return min(int(score), 10)  # Cap at 10
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating engagement score: {str(e)}")
+            return 0
