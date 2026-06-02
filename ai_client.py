@@ -667,23 +667,23 @@ class Agent:
             Personalized welcome message
         """
         system_prompt = f"""You are a professional AI assistant for Vigil.AI, a cybersecurity company.
-Generate a warm, personalized welcome message for a new lead.
+        Generate a warm, personalized welcome message for a new lead.
 
-Lead Information:
-- Name: {lead.get('name', 'Unknown')}
-- Company: {lead.get('company', 'Unknown')}
-- Job Title: {lead.get('job_title', 'Unknown')}
-- Source: {lead.get('source', 'Unknown')}
+        Lead Information:
+        - Name: {lead.get('name', 'Unknown')}
+        - Company: {lead.get('company', 'Unknown')}
+        - Job Title: {lead.get('job_title', 'Unknown')}
+        - Source: {lead.get('source', 'Unknown')}
 
-The message should:
-1. Be warm and professional
-2. Acknowledge their interest in cybersecurity
-3. Briefly mention Vigil.AI's expertise
-4. Encourage engagement
-5. Be concise (3-4 sentences)
-6. Include a call to action
+        The message should:
+        1. Be warm and professional
+        2. Acknowledge their interest in cybersecurity
+        3. Briefly mention Vigil.AI's expertise
+        4. Encourage engagement
+        5. Be concise (3-4 sentences)
+        6. Include a call to action
 
-Do NOT include any tool calls in this message."""
+        Do NOT include any tool calls in this message."""
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -691,8 +691,26 @@ Do NOT include any tool calls in this message."""
         ]
         
         try:
-            response = self.ai_client.chat_completion(messages)
-            return response["choices"][0]["message"]["content"]
+            # Handle async chat_completion properly
+            import asyncio
+            try:
+                # Check if there's already a running event loop (FastAPI context)
+                loop = asyncio.get_running_loop()
+                # If there's a running loop, we need to create a task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    future = pool.submit(asyncio.run, self.ai_client.chat_completion(messages))
+                    response = future.result()
+                    return response["choices"][0]["message"]["content"]
+            except RuntimeError:
+                # No running loop, create a new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    response = loop.run_until_complete(self.ai_client.chat_completion(messages))
+                    return response["choices"][0]["message"]["content"]
+                finally:
+                    loop.close()
         except Exception as e:
             self.logger.error(f"Failed to generate welcome message: {str(e)}")
             return f"Welcome {lead.get('name', 'there')}! Thank you for your interest in Vigil.AI's cybersecurity solutions. We're excited to help protect {lead.get('company', 'your organization')} from emerging threats. Let's start a conversation about your security needs."
@@ -737,8 +755,26 @@ Example: SEND_EMAIL{{recipient: john@company.com, subject: Following up, body: H
         messages.append({"role": "user", "content": "What should be the next action for this lead?"})
         
         try:
-            response = self.ai_client.chat_completion(messages)
-            return response["choices"][0]["message"]["content"]
+            # Handle async chat_completion properly
+            import asyncio
+            try:
+                # Check if there's already a running event loop (FastAPI context)
+                loop = asyncio.get_running_loop()
+                # If there's a running loop, we need to create a task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    future = pool.submit(asyncio.run, self.ai_client.chat_completion(messages))
+                    response = future.result()
+                    return response["choices"][0]["message"]["content"]
+            except RuntimeError:
+                # No running loop, create a new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    response = loop.run_until_complete(self.ai_client.chat_completion(messages))
+                    return response["choices"][0]["message"]["content"]
+                finally:
+                    loop.close()
         except Exception as e:
             self.logger.error(f"Failed to determine next action: {str(e)}")
             return "SEND_EMAIL{recipient: " + lead.get('email', '') + ", subject: Following up, body: Hi " + lead.get('name', 'there') + ", I wanted to check in and see if you have any questions about our cybersecurity services.}"
@@ -785,8 +821,26 @@ Do NOT include tool calls in this message."""
         messages.append({"role": "user", "content": f"Generate a {intent} message based on the conversation history."})
         
         try:
-            response = self.ai_client.chat_completion(messages)
-            return response["choices"][0]["message"]["content"]
+            # Handle async chat_completion properly
+            import asyncio
+            try:
+                # Check if there's already a running event loop (FastAPI context)
+                loop = asyncio.get_running_loop()
+                # If there's a running loop, we need to create a task
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    future = pool.submit(asyncio.run, self.ai_client.chat_completion(messages))
+                    response = future.result()
+                    return response["choices"][0]["message"]["content"]
+            except RuntimeError:
+                # No running loop, create a new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    response = loop.run_until_complete(self.ai_client.chat_completion(messages))
+                    return response["choices"][0]["message"]["content"]
+                finally:
+                    loop.close()
         except Exception as e:
             self.logger.error(f"Failed to generate contextual message: {str(e)}")
             return f"Hi {lead.get('name', 'there')}, following up on our previous conversation. I'd love to continue discussing how Vigil.AI can help {lead.get('company', 'your organization')} with cybersecurity."
