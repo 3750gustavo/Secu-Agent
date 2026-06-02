@@ -27,3 +27,5 @@ dist/
 
 # Ignore files and directories containing "log" in their names
 *log*
+railway_backup.json
+fetch_railway_data.py
