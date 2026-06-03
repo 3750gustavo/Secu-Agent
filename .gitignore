@@ -29,3 +29,6 @@ dist/
 *log*
 railway_backup.json
 fetch_railway_data.py
+check_current_leads.py
+check_railway_current.py
+delete_and_recreate_lead.py
