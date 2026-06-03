@@ -683,7 +683,17 @@ class Agent:
         5. Be concise (3-4 sentences)
         6. Include a call to action
 
-        Do NOT include any tool calls in this message."""
+        IMPORTANT: Output ONLY the email body text. Do NOT include "Subject:" or any email headers. Start directly with the greeting.
+        Do NOT include any tool calls in this message.
+
+        Example format:
+        "Hi [Name],
+
+        Thank you for your interest in Vigil.AI's cybersecurity solutions. We're excited to help protect [Company] from emerging threats. I'd love to learn more about your security needs and discuss how we can support your goals.
+
+        Are you available for a brief call this week?"
+
+        Your response should follow this exact format - just the body text, no subject line."""
 
         messages = [
             {"role": "system", "content": system_prompt},
