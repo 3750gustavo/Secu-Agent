@@ -39,7 +39,7 @@ BASE_URL = os.getenv("AIRLI_BASE_URL", config.get('BASE_URL', "https://api.arlia
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", config.get('LLM_PROVIDER', 'openai'))
 LLM_API_KEY = os.getenv("LLM_API_KEY", API_KEY)
 LLM_API_URL = os.getenv("LLM_API_URL", BASE_URL)
-LLM_MODEL = os.getenv("LLM_MODEL", config.get('LLM_MODEL', 'Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled'))
+LLM_MODEL = os.getenv("LLM_MODEL", config.get('LLM_MODEL', 'Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted'))
 
 # Validate required configuration
 if not API_KEY and not LLM_API_KEY:
@@ -342,13 +342,15 @@ class AIClient:
     
     # Working models discovered from API exploration
     WORKING_MODELS = [
-        "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled",
-        "Gemma-4-31B-Cognitive-Unshackled", 
-        "Gemma-4-31B-DarkIdol"
+        "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted"
+        # Temporarily offline - will return in the future:
+        # "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled",
+        # "Gemma-4-31B-Cognitive-Unshackled",
+        # "Gemma-4-31B-DarkIdol"
     ]
     
     # Default model for general use
-    DEFAULT_MODEL = "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled"
+    DEFAULT_MODEL = "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted"
     
     def __init__(self, model: Optional[str] = None):
         """
