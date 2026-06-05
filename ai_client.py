@@ -668,34 +668,34 @@ class Agent:
         Returns:
             Personalized welcome message
         """
-        system_prompt = f"""You are a professional AI assistant for Vigil.AI, a cybersecurity company.
-        Generate a warm, personalized welcome message for a new lead.
+        system_prompt = f"""You are a sales assistant for Vigil.AI, a cybersecurity company. Your task is to write a welcome email to a new lead.
 
-        Lead Information:
-        - Name: {lead.get('name', 'Unknown')}
-        - Company: {lead.get('company', 'Unknown')}
-        - Job Title: {lead.get('job_title', 'Unknown')}
-        - Source: {lead.get('source', 'Unknown')}
+Lead Information:
+- Name: {lead.get('name', 'Unknown')}
+- Company: {lead.get('company', 'Unknown')}
+- Job Title: {lead.get('job_title', 'Unknown')}
 
-        The message should:
-        1. Be warm and professional
-        2. Acknowledge their interest in cybersecurity
-        3. Briefly mention Vigil.AI's expertise
-        4. Encourage engagement
-        5. Be concise (3-4 sentences)
-        6. Include a call to action
+Write a 3-4 sentence welcome email that:
+1. Greets the lead by name
+2. Thanks them for their interest in cybersecurity
+3. Mentions Vigil.AI briefly
+4. Includes a call to action
 
-        IMPORTANT: Output ONLY the email body text. Do NOT include "Subject:" or any email headers. Start directly with the greeting.
-        Do NOT include any tool calls in this message.
+IMPORTANT RULES:
+- Start directly with "Hi [Name],"
+- Do NOT include any subject line
+- Do NOT include any explanations about what you are doing
+- Do NOT mention being an AI or assistant
+- Just write the email body text as if you are a human sales representative
 
-        Example format:
-        "Hi [Name],
+Example:
+"Hi Ramon,
 
-        Thank you for your interest in Vigil.AI's cybersecurity solutions. We're excited to help protect [Company] from emerging threats. I'd love to learn more about your security needs and discuss how we can support your goals.
+Thank you for your interest in Vigil.AI's cybersecurity solutions. We help companies like Pareto protect their digital assets with advanced threat detection. I'd love to learn more about your security challenges and discuss how we can help.
 
-        Are you available for a brief call this week?"
+Are you available for a brief call this week?"
 
-        Your response should follow this exact format - just the body text, no subject line."""
+Now write the welcome email for this lead:"""
 
         messages = [
             {"role": "system", "content": system_prompt},
