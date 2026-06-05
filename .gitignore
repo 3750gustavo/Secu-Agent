@@ -32,3 +32,6 @@ fetch_railway_data.py
 check_current_leads.py
 check_railway_current.py
 delete_and_recreate_lead.py
+test_welcome_prompt.py
+test_deploy_api.py
+test_reregister_lead.py
