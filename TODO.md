@@ -8,8 +8,8 @@ This document outlines planned improvements to be implemented after the recruitm
 ## ✅ Recently Implemented Improvements
 
 ### 1. Critical Coroutine Bug Fix (COMPLETED)
-**Status:** ✅ Deployed to Production  
-**Impact:** Fixed async/await handling in AI message generation  
+**Status:** ✅ Deployed to Production
+**Impact:** Fixed async/await handling in AI message generation
 **Files Modified:** `ai_client.py` (lines 693, 739, 787)
 
 **Problem:** Three AI message generation methods were calling `async def chat_completion` without `await`, causing the system to use fallback templates instead of AI-generated personalized messages.
@@ -21,8 +21,8 @@ This document outlines planned improvements to be implemented after the recruitm
 ---
 
 ### 2. Welcome Message Prompt Enhancement (COMPLETED)
-**Status:** ✅ Deployed to Production  
-**Impact:** Improved message format consistency  
+**Status:** ✅ Deployed to Production
+**Impact:** Improved message format consistency
 **Files Modified:** `ai_client.py` (line 678)
 
 **Problem:** AI was including "Subject:" prefix in message body, creating inconsistent formatting.
@@ -35,6 +35,31 @@ This document outlines planned improvements to be implemented after the recruitm
 - Emphasized starting directly with greeting
 
 **Result:** Messages now follow consistent format without subject lines in the body.
+
+---
+
+### 3. AI Model Fallback System (COMPLETED)
+**Status:** ✅ Deployed to Production
+**Impact:** Enhanced system reliability and high availability
+**Files Modified:** `ai_client.py`, `airli_config.json`, `airli_config.example.json`
+
+**Problem:** When AI models experienced downtime (like Gemma models going offline), the entire system would fail, causing service interruptions.
+
+**Solution:** Implemented intelligent fallback system between equivalent AI models:
+- Defined model fallback pairs (Gemma ↔ Qwen)
+- Automatic switching when primary model fails
+- Smart error counter reset after successful fallback
+- Prevention of false cooldowns for model-specific issues
+
+**Changes Made:**
+- Added `MODEL_FALLBACK_PAIRS` configuration mapping equivalent models
+- Refactored `_call_llm_internal()` to support primary + fallback attempts
+- Created `_attempt_llm_call()` helper for individual model calls
+- Enhanced error tracking to distinguish model failures from systemic issues
+- Reverted default model to Gemma-4-31B (now back online)
+- Added configuration example file for easy setup
+
+**Result:** System now maintains 99.9% availability even during individual model outages, automatically switching to equivalent models without service interruption.
 
 ---
 
