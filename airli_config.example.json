@@ -1,0 +1,6 @@
+{
+    "API_KEY": "your-api-key-here",
+    "BASE_URL": "https://api.arliai.com",
+    "LLM_PROVIDER": "openai",
+    "LLM_MODEL": "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled"
+}

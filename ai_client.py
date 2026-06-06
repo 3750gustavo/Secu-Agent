@@ -39,7 +39,18 @@ BASE_URL = os.getenv("AIRLI_BASE_URL", config.get('BASE_URL', "https://api.arlia
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", config.get('LLM_PROVIDER', 'openai'))
 LLM_API_KEY = os.getenv("LLM_API_KEY", API_KEY)
 LLM_API_URL = os.getenv("LLM_API_URL", BASE_URL)
-LLM_MODEL = os.getenv("LLM_MODEL", config.get('LLM_MODEL', 'Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted'))
+LLM_MODEL = os.getenv("LLM_MODEL", config.get('LLM_MODEL', 'Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled'))
+
+# Model fallback pairs - equivalent models from different families
+MODEL_FALLBACK_PAIRS = {
+    # Gemma models → Qwen equivalents
+    "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled": "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted",
+    "Gemma-4-31B-Cognitive-Unshackled": "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted",  # Fallback to main Qwen
+    "Gemma-4-31B-DarkIdol": "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted",  # Fallback to main Qwen
+    
+    # Qwen models → Gemma equivalents
+    "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted": "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled",
+}
 
 # Validate required configuration
 if not API_KEY and not LLM_API_KEY:
@@ -234,36 +245,108 @@ async def call_llm_with_limit(system_prompt: str, user_message: str, history: Op
             
         except Exception as e:
             error_timestamp = get_brt_timestamp()
+            error_msg = str(e)
             
-            # Track consecutive errors
-            async with _error_tracking_lock:
-                _consecutive_errors += 1
-                logger.error(f"[{error_timestamp}] AI Request FAILED - Reason: {reason} | Caller: {caller_context} | Error: {str(e)} | Consecutive errors: {_consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}")
-                
-                # Activate cooldown if threshold reached
-                if _consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
-                    _error_cooldown_until = datetime.now(BRT_TZ) + timedelta(seconds=COOLDOWN_DURATION)
-                    logger.critical(f"[{error_timestamp}] COOLDOWN ACTIVATED - {MAX_CONSECUTIVE_ERRORS} consecutive errors | Cooldown until: {_error_cooldown_until.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+            # Check if this was a fallback success (error message contains "All model attempts failed")
+            # If it's a fallback failure, we should NOT increment the counter as it was already reset in _call_llm_internal
+            is_fallback_failure = "All model attempts failed" in error_msg
+            
+            if not is_fallback_failure:
+                # Track consecutive errors only for non-fallback failures
+                async with _error_tracking_lock:
+                    _consecutive_errors += 1
+                    logger.error(f"[{error_timestamp}] AI Request FAILED - Reason: {reason} | Caller: {caller_context} | Error: {error_msg} | Consecutive errors: {_consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}")
+                    
+                    # Activate cooldown if threshold reached
+                    if _consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                        _error_cooldown_until = datetime.now(BRT_TZ) + timedelta(seconds=COOLDOWN_DURATION)
+                        logger.critical(f"[{error_timestamp}] COOLDOWN ACTIVATED - {MAX_CONSECUTIVE_ERRORS} consecutive errors | Cooldown until: {_error_cooldown_until.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+            else:
+                # Fallback failure - both models failed, this is a real error
+                async with _error_tracking_lock:
+                    _consecutive_errors += 1
+                    logger.error(f"[{error_timestamp}] AI Request FAILED (Both models) - Reason: {reason} | Caller: {caller_context} | Error: {error_msg} | Consecutive errors: {_consecutive_errors}/{MAX_CONSECUTIVE_ERRORS}")
+                    
+                    # Activate cooldown if threshold reached
+                    if _consecutive_errors >= MAX_CONSECUTIVE_ERRORS:
+                        _error_cooldown_until = datetime.now(BRT_TZ) + timedelta(seconds=COOLDOWN_DURATION)
+                        logger.critical(f"[{error_timestamp}] COOLDOWN ACTIVATED - {MAX_CONSECUTIVE_ERRORS} consecutive errors | Cooldown until: {_error_cooldown_until.strftime('%Y-%m-%d %H:%M:%S %Z')}")
             
             raise
 
 
-async def _call_llm_internal(system_prompt: str, user_message: str, history: Optional[List[Dict[str, str]]] = None) -> str:
+async def _call_llm_internal(system_prompt: str, user_message: str, history: Optional[List[Dict[str, str]]] = None, model_override: Optional[str] = None) -> str:
     """
-    Internal LLM dispatcher implementation.
+    Internal LLM dispatcher implementation with model fallback support.
     Supports OpenAI and Anthropic formats.
     
     Args:
         system_prompt: System prompt for the LLM
         user_message: User message to send
         history: Conversation history (list of message dicts with 'role' and 'content')
+        model_override: Optional model name to use instead of default LLM_MODEL
         
     Returns:
         LLM response text
+        
+    Raises:
+        Exception: If all model attempts fail
     """
     if history is None:
         history = []
     
+    # Determine which model to use
+    primary_model = model_override or LLM_MODEL
+    fallback_model = MODEL_FALLBACK_PAIRS.get(primary_model)
+    
+    # Try primary model first
+    try:
+        result = await _attempt_llm_call(primary_model, system_prompt, user_message, history)
+        logger.info(f"[{get_brt_timestamp()}] LLM call successful with primary model: {primary_model}")
+        return result
+    except Exception as e:
+        logger.warning(f"[{get_brt_timestamp()}] Primary model {primary_model} failed: {str(e)}")
+        
+        # Try fallback model if available
+        if fallback_model:
+            logger.info(f"[{get_brt_timestamp()}] Attempting fallback to model: {fallback_model}")
+            try:
+                result = await _attempt_llm_call(fallback_model, system_prompt, user_message, history)
+                logger.info(f"[{get_brt_timestamp()}] LLM call successful with fallback model: {fallback_model}")
+                
+                # Reset error counter since fallback worked - failure was model-specific, not systemic
+                global _consecutive_errors, _error_cooldown_until
+                async with _error_tracking_lock:
+                    if _consecutive_errors > 0:
+                        logger.info(f"[{get_brt_timestamp()}] Resetting consecutive error counter after successful fallback (was {_consecutive_errors})")
+                        _consecutive_errors = 0
+                        _error_cooldown_until = None
+                
+                return result
+            except Exception as fallback_error:
+                logger.error(f"[{get_brt_timestamp()}] Fallback model {fallback_model} also failed: {str(fallback_error)}")
+                raise Exception(f"All model attempts failed. Primary: {str(e)}, Fallback: {str(fallback_error)}")
+        else:
+            # No fallback available, re-raise original error
+            raise
+
+
+async def _attempt_llm_call(model: str, system_prompt: str, user_message: str, history: List[Dict[str, str]]) -> str:
+    """
+    Attempt a single LLM API call with the specified model.
+    
+    Args:
+        model: Model name to use
+        system_prompt: System prompt for the LLM
+        user_message: User message to send
+        history: Conversation history
+        
+    Returns:
+        LLM response text
+        
+    Raises:
+        Exception: If API call fails
+    """
     try:
         if LLM_PROVIDER == "openai":
             # OpenAI-compatible format (ArliAI, OpenAI, etc.)
@@ -272,7 +355,7 @@ async def _call_llm_internal(system_prompt: str, user_message: str, history: Opt
                 "Content-Type": "application/json"
             }
             payload = {
-                "model": LLM_MODEL,
+                "model": model,
                 "messages": [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": user_message}],
                 "max_tokens": 1024
             }
@@ -306,10 +389,10 @@ async def _call_llm_internal(system_prompt: str, user_message: str, history: Opt
             raise ValueError(f"Unsupported LLM provider: {LLM_PROVIDER}")
     
     except requests.exceptions.RequestException as e:
-        logger.error(f"LLM API request failed: {str(e)}")
+        logger.error(f"LLM API request failed for model {model}: {str(e)}")
         raise
     except (KeyError, IndexError) as e:
-        logger.error(f"Failed to parse LLM response: {str(e)}")
+        logger.error(f"Failed to parse LLM response for model {model}: {str(e)}")
         raise
 
 
