@@ -142,7 +142,10 @@ O sistema implementa comunicações proativas baseadas em tempo e comportamento:
 **AI/LLM:**
 - **ArliAI:** API compatível com OpenAI, custo-efetiva
 - **Anthropic Claude:** Suporte opcional para raciocínio complexo
-- **Dispatcher Flexível:** Troca fácil entre provedores
+- **Dispatcher Flexível:** Troca fácil entre provedores (OpenAI, Anthropic, etc.)
+- **Sistema de Fallback Automático:** Troca inteligente entre modelos equivalentes do mesmo provedor para garantir alta disponibilidade
+- **Modelos Suportados:** Gemma-4-31B e Qwen3.5-27B com fallback mútuo
+- **Alta Disponibilidade:** Sistema continua operando mesmo com falhas de modelo específico
 
 **Frontend:**
 - **Alpine.js:** Framework reativo leve (15KB)
@@ -215,13 +218,16 @@ source .venv/bin/activate
 pip install -r requirements.txt
 
 # 5. Configure a API
-# Crie o arquivo airli_config.json:
+# Crie o arquivo airli_config.json (use airli_config.example.json como referência):
 {
   "API_KEY": "sua-chave-api-aqui",
-  "BASE_URL": "https://api.arli.ai/v1",
+  "BASE_URL": "https://api.arliai.com",
   "LLM_PROVIDER": "openai",
   "LLM_MODEL": "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled"
 }
+
+# Nota: O sistema possui fallback automático entre modelos equivalentes.
+# Se o modelo principal falhar, o sistema tenta automaticamente o modelo alternativo.
 
 # 6. Inicialize o banco de dados
 python -c "from database import init_db; init_db()"

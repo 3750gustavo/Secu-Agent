@@ -99,6 +99,9 @@ Secu-Agent is an AI-powered lead management system designed for Vigil.AI's cyber
 - Anthropic API support
 - Flexible LLM dispatcher
 - Tool calling capabilities
+- **Automatic model fallback system** for high availability
+- **Model pairs:** Gemma-4-31B ↔ Qwen3.5-27B with intelligent switching
+- **Error recovery:** Reset of consecutive error counter after successful fallback
 
 **Communication Layer:**
 - Mocked email service with realistic behavior
@@ -185,6 +188,34 @@ API_KEY = config['API_KEY']
 BASE_URL = config['BASE_URL']
 LLM_MODEL = 'Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled'
 ```
+
+#### Model Fallback System
+**Architecture:**
+The system implements intelligent fallback between equivalent AI models to ensure high availability:
+
+```python
+MODEL_FALLBACK_PAIRS = {
+    # Gemma models → Qwen equivalents
+    "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled": "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted",
+    "Gemma-4-31B-Cognitive-Unshackled": "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted",
+    "Gemma-4-31B-DarkIdol": "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted",
+    
+    # Qwen models → Gemma equivalents
+    "Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted": "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled",
+}
+```
+
+**Fallback Logic:**
+1. **Primary Attempt:** Try configured model first
+2. **Automatic Fallback:** If primary fails, try equivalent model
+3. **Error Recovery:** Reset consecutive error counter after successful fallback
+4. **Cooldown Prevention:** Avoid false cooldowns when fallback succeeds
+
+**Benefits:**
+- **High Availability:** System continues operating during model-specific outages
+- **Transparent Switching:** No code changes needed when models fail
+- **Smart Error Handling:** Distinguishes between model failures and systemic issues
+- **Graceful Degradation:** Maintains service quality even with partial failures
 
 #### Anthropic Claude (Secondary)
 **Choice Rationale:**
