@@ -10,10 +10,12 @@
 ### Deployment Summary
 - ✅ Application deployed on Railway cloud platform
 - ✅ AI rate limiting system active
+- ✅ Automatic model fallback system operational (Gemma ↔ Qwen)
 - ✅ Database operational (SQLite)
 - ✅ Health monitoring enabled
 - ✅ Automatic HTTPS/SSL configured
 - ✅ Environment variables configured
+- ✅ Configuration example file provided (airli_config.example.json)
 - ⚠️ JWT authentication recommended for production
 
 ## Environment Setup
@@ -24,6 +26,13 @@
 - [x] `LLM_API_URL` - API endpoint URL (default: from config)
 - [x] `LLM_MODEL` - Model name to use (default: "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled")
 - [x] `DATABASE_URL` - Database connection string (default: "sqlite:///vigil_agent.db")
+
+### Model Fallback Configuration
+- [x] Model fallback pairs configured (Gemma ↔ Qwen)
+- [x] Automatic fallback on model failure
+- [x] Error counter reset after successful fallback
+- [x] Cooldown prevention for model-specific issues
+- [x] Configuration example file available (airli_config.example.json)
 
 ### JWT Authentication Variables (Recommended for Production)
 - [ ] `JWT_SECRET_KEY` - Secret key for JWT token generation (strong, random)

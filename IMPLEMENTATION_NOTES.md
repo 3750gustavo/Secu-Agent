@@ -31,17 +31,21 @@ RESTful API with full CRUD operations:
 
 ### 3. AI Client Integration (`ai_client.py`)
 **Based on API exploration discoveries**:
-- **Working Models**: 3 confirmed working models from 21 available
+- **Working Models**: Multiple confirmed working models with automatic fallback
 - **Lead Engagement**: Generate personalized responses
 - **Interest Analysis**: Analyze lead messages for interest level
 - **Follow-up Suggestions**: AI-powered follow-up recommendations
 - **Convenience Functions**: Quick engagement message generation
+- **Model Fallback System**: Automatic switching between equivalent models for high availability
 
 **API Discoveries Implemented**:
 - All endpoints require model parameter (no defaults)
 - 21 available models from ArliAI
 - Working models: Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled, Gemma-4-31B-Cognitive-Unshackled, Gemma-4-31B-DarkIdol
+- Qwen3.5-27B-Claude-4.6-Opus-Reasoning-Distilled-Derestricted as fallback option
 - Proper error handling for invalid models
+- Intelligent fallback between Gemma and Qwen model families
+- Error counter reset after successful fallback to prevent false cooldowns
 
 ### 4. AI Rate Limiting System (`ai_client.py`)
 **Global rate limiting with smart scheduling**:
