@@ -49,6 +49,18 @@ Complete guide to deploy Secu-Agent AI Lead Management System on Railway with Po
 
 In your Railway project's Variables tab, add these variables:
 
+**Core Configuration:**
+- `AIRLI_API_KEY` - Your ArliAI API key
+- `AIRLI_BASE_URL` - API base URL (default: "https://api.arliai.com")
+- `LLM_PROVIDER` - LLM provider (default: "openai")
+- `LLM_MODEL` - Primary model (default: "Gemma-4-31B-Claude-4.6-Opus-Reasoning-Distilled")
+
+**Model Fallback System:**
+- The system automatically includes fallback between Gemma and Qwen models
+- No additional configuration required - fallback pairs are built-in
+- If primary model fails, system automatically tries equivalent model
+- Error counter resets after successful fallback to prevent false cooldowns
+
 #### Required Variables:
 
 1. **AIRLI_API_KEY**
